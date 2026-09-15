@@ -31,6 +31,8 @@ jobs:
           cache-dependency-path: |
             requirements.lock.txt
             requirements-dev.txt
+      # Audit the entire environment, including build tools bundled by setup-python.
+      - run: python -m pip install --upgrade setuptools==83.0.0
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pip check
       - run: ruff check backend scripts tests
