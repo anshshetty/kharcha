@@ -19,6 +19,52 @@ function setAccessRequired(required: boolean) {
   for (const listener of accessListeners) listener();
 }
 
+function responseError(result: unknown, fallback: string): string {
+  return typeof result === 'object' && result !== null && 'error' in result
+    ? String(result.error)
+    : fallback;
+}
+
+export function isMobileClient(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  // The desktop listener uses HTTP loopback; the phone listener always uses HTTPS.
+  return (
+    window.location.protocol === 'https:' ||
+    (!!host && !['127.0.0.1', 'localhost', '[::1]'].includes(host))
+  );
+}
+
+export function savePhoneAccess(access: string): void {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(access))
+    throw new Error('Invalid phone session');
+  window.sessionStorage.setItem(accessKey, access);
+  token = '';
+  setAccessRequired(false);
+}
+
+export async function pairingRequest<T>(
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const response = await fetch('/api/mobile/' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    redirect: 'error',
+    body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(responseError(result, 'Pairing failed'));
+  return result as T;
+}
+
+function lockedMessage(): string {
+  return isMobileClient()
+    ? 'Pair this phone from Settings → Mobile access on the Mac.'
+    : unlockMessage;
+}
+
 export function localAuthorization(): Record<string, string> {
   if (typeof window === 'undefined') return {};
   const fragment = new URLSearchParams(window.location.hash.slice(1));
@@ -42,8 +88,8 @@ export function localAuthorization(): Record<string, string> {
   }
   const access = window.sessionStorage.getItem(accessKey);
   if (!access) {
-    setAccessRequired(true);
-    throw new Error(unlockMessage);
+    setAccessRequired(!isMobileClient());
+    throw new Error(lockedMessage());
   }
   return { Authorization: 'Bearer ' + access };
 }
@@ -70,19 +116,31 @@ async function localFetch(path: string, init?: RequestInit): Promise<Response> {
     if (typeof window !== 'undefined')
       window.sessionStorage.removeItem(accessKey);
     token = '';
-    setAccessRequired(true);
-    throw new Error(unlockMessage);
+    setAccessRequired(!isMobileClient());
+    if (typeof window !== 'undefined' && isMobileClient())
+      window.dispatchEvent(new Event('kharcha-phone-locked'));
+    throw new Error(lockedMessage());
   }
   return response;
 }
 
 export async function downloadTransactions(): Promise<void> {
-  const response = await localFetch('/export.csv');
-  if (!response.ok) throw new Error('Could not export transactions.');
+  await downloadLocalFile('/export.csv', 'monthlycost-transactions.csv');
+}
+
+export async function downloadLocalFile(
+  path: string,
+  filename: string,
+): Promise<void> {
+  const response = await localFetch(path);
+  if (!response.ok) {
+    const result = await response.json();
+    throw new Error(responseError(result, 'Could not download this file.'));
+  }
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'monthlycost-transactions.csv';
+  link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

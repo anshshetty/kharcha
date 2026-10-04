@@ -172,3 +172,61 @@ test('expired access invalidates the workspace instead of leaving stale sync con
     globalThis.fetch = previousFetch;
   }
 });
+
+test('phone sessions unlock normal API requests and lock after revocation', async () => {
+  const previousWindow = globalThis.window,
+    previousFetch = globalThis.fetch;
+  globalThis.window = browser();
+  window.location.hostname = '192.168.1.10';
+  window.location.protocol = 'https:';
+  let locked = 0;
+  window.dispatchEvent = (event) => {
+    assert.equal(event.type, 'kharcha-phone-locked');
+    locked++;
+  };
+  globalThis.fetch = async () => json({ error: 'Session revoked' }, 401);
+  try {
+    const { api, isMobileClient, savePhoneAccess, isLocalAccessRequired } =
+      await import('../lib/api.ts?phone');
+    assert.equal(isMobileClient(), true);
+    assert.throws(() => savePhoneAccess('invalid'), /Invalid phone session/);
+    savePhoneAccess('c'.repeat(43));
+    await assert.rejects(api('/status'), /Pair this phone/);
+    assert.equal(locked, 1);
+    assert.equal(isLocalAccessRequired(), false);
+    assert.equal(window.sessionStorage.getItem('monthlycost.access'), null);
+    savePhoneAccess('d'.repeat(43));
+    assert.equal(isLocalAccessRequired(), false);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('pairing requests use only JSON and do not replay a failed request', async () => {
+  const previousFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async (url, init) => {
+    requests++;
+    assert.equal(url, '/api/mobile/pair');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.headers.Authorization, undefined);
+    assert.deepEqual(JSON.parse(init.body), {
+      secret: 'invitation',
+      name: 'Phone',
+    });
+    return json({ error: 'This pairing link has expired' }, 400);
+  };
+  try {
+    const { pairingRequest } = await import('../lib/api.ts?pairing');
+    await assert.rejects(
+      pairingRequest('pair', { secret: 'invitation', name: 'Phone' }),
+      /expired/,
+    );
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});

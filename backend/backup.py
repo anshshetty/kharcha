@@ -32,6 +32,7 @@ LOCAL_SETTINGS = {
     "backfill",
     "gmail_scan_policy",
     "ai_advisor_enabled",
+    "mobile_access_enabled",
 }
 
 

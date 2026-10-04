@@ -129,8 +129,9 @@ export function SyncStatus({
       )}
       {reconnect && (
         <p>
-          Sign in with the same Google account to resume. Your saved history is
-          safe.
+          {status.mobile_client
+            ? 'Sign in with the same Google account on the Mac to resume. Your saved history is safe.'
+            : 'Sign in with the same Google account to resume. Your saved history is safe.'}
         </p>
       )}
       {!reconnect && failed && (
@@ -143,7 +144,9 @@ export function SyncStatus({
         <p>
           {connected
             ? 'The first sync has not completed yet.'
-            : 'Previously imported records remain available. Connect Gmail for automatic updates.'}
+            : status.mobile_client
+              ? 'Previously imported records remain available. Connect Gmail on the Mac for automatic updates.'
+              : 'Previously imported records remain available. Connect Gmail for automatic updates.'}
         </p>
       )}
       <div className="sync-status-actions">
@@ -158,7 +161,11 @@ export function SyncStatus({
           </Button>
         )}
         <Button variant="outline" onClick={onSettings}>
-          {reconnect ? 'Reconnect Gmail' : 'Sync details'}
+          {reconnect
+            ? status.mobile_client
+              ? 'Connection details'
+              : 'Reconnect Gmail'
+            : 'Sync details'}
         </Button>
       </div>
     </section>

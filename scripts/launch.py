@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch a built, local-only Kharcha without a Node development server."""
+"""Launch built Kharcha with a private desktop session and paired LAN access."""
 
 import argparse
 import hashlib
@@ -44,6 +44,9 @@ def unlocked_url(url, port):
 def main():
     parser = argparse.ArgumentParser(description="Start Kharcha on this Mac")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--no-mobile", action="store_true", help="Disable Wi-Fi access for this launch"
+    )
     parser.add_argument("--port", type=int, default=int(os.environ.get("MONTHLYCOST_PORT", "8765")))
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
@@ -96,6 +99,8 @@ def main():
         print("Building the local interface…")
         subprocess.run(["npm", "run", "build"], cwd=ROOT / "frontend", check=True)
     env = {**os.environ, "MONTHLYCOST_PORT": str(args.port)}
+    if args.no_mobile:
+        env["MONTHLYCOST_MOBILE"] = "0"
     process = subprocess.Popen(
         [
             str(python),
@@ -108,6 +113,7 @@ def main():
             "--port",
             str(args.port),
             "--no-access-log",
+            "--no-proxy-headers",
         ],
         cwd=ROOT,
         env=env,
@@ -127,6 +133,7 @@ def main():
         print(
             "\nKharcha is ready: "
             + url
+            + "\nPhone access: open Settings → Mobile access to set up HTTPS and pair your phone."
             + "\nKeep this window open while syncing. Press Control-C to stop.\n",
             flush=True,
         )

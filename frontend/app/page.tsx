@@ -57,6 +57,7 @@ import { Picker } from '@/components/common';
 import { TransactionTable } from '@/components/transaction-table';
 import { LedgerOverview } from '@/components/ledger-overview';
 import { SettingsPanel } from '@/components/settings-panel';
+import { PhoneAccess } from '@/components/phone-access';
 import { ReviewPanel } from '@/components/review-panel';
 import { TransactionDetail } from '@/components/transaction-detail';
 import { useNavigation } from '@/hooks/use-navigation';
@@ -115,11 +116,13 @@ export default function Home() {
       </main>
     );
   return (
-    <SidebarProvider
-      style={{ '--sidebar-width': '224px' } as React.CSSProperties}
-    >
-      <Workspace />
-    </SidebarProvider>
+    <PhoneAccess>
+      <SidebarProvider
+        style={{ '--sidebar-width': '224px' } as React.CSSProperties}
+      >
+        <Workspace />
+      </SidebarProvider>
+    </PhoneAccess>
   );
 }
 
@@ -436,7 +439,13 @@ function Workspace() {
               {connected ? status.connection.email?.[0]?.toUpperCase() : 'M'}
             </span>
             <span>
-              <b>{connected ? 'Gmail connected' : 'Connect your Gmail'}</b>
+              <b>
+                {connected
+                  ? 'Gmail connected'
+                  : status?.mobile_client
+                    ? 'Connect Gmail on your Mac'
+                    : 'Connect your Gmail'}
+              </b>
               <small>
                 {connected
                   ? status.connection.email
@@ -482,7 +491,9 @@ function Workspace() {
             </span>
             <Button
               variant="outline"
-              disabled={busy || running}
+              disabled={
+                busy || running || (!connected && status?.mobile_client)
+              }
               onClick={() => {
                 if (!connected) setView('settings');
                 else void action(() => api('/sync', 'POST', {}));
@@ -497,9 +508,11 @@ function Workspace() {
                 ? 'Syncing'
                 : connected
                   ? 'Sync Gmail'
-                  : status?.connection?.state === 'reconnect'
-                    ? 'Reconnect Gmail'
-                    : 'Connect Gmail'}
+                  : status?.mobile_client
+                    ? 'Connect on Mac'
+                    : status?.connection?.state === 'reconnect'
+                      ? 'Reconnect Gmail'
+                      : 'Connect Gmail'}
             </Button>
           </div>
         </header>

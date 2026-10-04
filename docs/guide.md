@@ -1,6 +1,6 @@
 # Kharcha guide
 
-A local Gmail spending tracker for one person, one Gmail account, and primarily INR. The interface runs only on this Mac. The app uses Gmail read-only OAuth, local parsers, encrypted email caching, and a persistent SQLite ledger. Optional automatic spending analysis uses the signed-in Codex runtime; selected ledger details are sent to Codex. Email fetching and accounting remain local.
+A local Gmail spending tracker for one person, one Gmail account, and primarily INR. The app runs on this Mac, with optional paired browser access from a phone on the same private network. The app uses Gmail read-only OAuth, local parsers, encrypted email caching, and a persistent SQLite ledger. Optional automatic spending analysis uses the signed-in Codex runtime; selected ledger details are sent to Codex. Email fetching and accounting remain local.
 
 ## Start the app
 
@@ -13,6 +13,57 @@ Double-click **Start Kharcha.command** in Finder, or run:
 The launcher opens **http://127.0.0.1:8765** and unlocks the app for that browser tab. Opening the base URL in a fresh tab does not grant access to the ledger; run the launcher again to unlock it. Keep the launcher running while using the app. Control-C stops it. The launcher authenticates before reusing an existing instance, refreshes dependencies when lockfiles change, and builds changed frontend assets when needed. After upgrading from a version without local authentication, stop the old instance first. Starting the backend rotates the private access credential, so use the launcher to reopen stale browser tabs.
 
 The first setup requires Python 3.11+ and Node.js 22.13+ with npm. Dependencies are locked in `requirements.lock.txt` and `frontend/package-lock.json`. Initial installation and builds require internet access. Subsequent reporting works offline; Gmail synchronization requires internet and runs on startup and every 15 minutes while the backend is running. No login-time daemon or public server is installed.
+
+## Use Kharcha on your phone
+
+Wi-Fi access is **on by default**. The desktop interface remains at
+`http://127.0.0.1:8765`; phones use a separate HTTPS address shown in
+**Settings → Mobile access**. Both devices must be on the same private IPv4
+subnet. A wired Mac also works when it shares the phone's local network.
+
+1. On the Mac, open **Settings → Mobile access → First-time certificate setup**.
+   Download `Kharcha-Mobile.cer` and transfer it directly to the phone, for example
+   with AirDrop. Only the public certificate is transferred.
+2. On iPhone, install the downloaded certificate under **Settings → General →
+   VPN & Device Management**, then enable **Kharcha local mobile access** under
+   **General → About → Certificate Trust Settings**. Apple explains the separate
+   trust step in [its certificate instructions](https://support.apple.com/en-us/102390).
+   On Android, install it as a CA certificate under the device's security settings;
+   the exact menu varies. Do not bypass a browser certificate warning. Remove this
+   certificate from the phone when you no longer use Kharcha mobile access.
+3. On the Mac, choose **Pair a phone** and scan the QR with the phone's camera.
+   Enter a device name on the phone and choose **Request access**.
+4. Compare the six-digit code on both screens. On the Mac, approve the matching
+   request. The phone opens the same ledger automatically.
+
+The invitation is single-use and expires after five minutes; approval must also
+finish within five minutes of the request. Phone access lasts in that browser tab
+until the app restarts, the network changes, or you disconnect it. Refresh keeps
+the session; a fresh browser tab needs pairing. Device labels are supplied by the
+phone, so approve by the matching code, not the name alone.
+
+You can view reports, review transactions, enter or edit transactions, upload
+statements, and export CSV from the phone. Edits update the Mac's ledger. Gmail
+sign-in, phone management, encrypted backups, restore, and deleting all data stay
+on the Mac. Optional AI consent still applies to requests made from a phone.
+
+Keep the Mac awake with the launcher running. To stop access, disable **Allow
+access over Wi-Fi**; this immediately revokes all phone sessions and saves your
+choice. Turning it back on requires fresh pairing. **Disconnect** revokes one
+phone. If the Mac changes IP address, the app updates the phone URL and revokes
+old sessions; rescan a new link without reinstalling the same root certificate.
+
+If access is unavailable, check the status in this panel. macOS may ask whether
+to allow incoming connections to Python; allow it only if you want phone access.
+Guest Wi-Fi often isolates devices, and a VPN or firewall may block access. A
+port conflict can be resolved with `MONTHLYCOST_MOBILE_PORT`, using a different
+port from `MONTHLYCOST_PORT`. IPv6-only and public-address networks are not supported.
+No router port forwarding is needed.
+
+For a desktop-only launch, run `python3 scripts/launch.py --no-mobile` or set
+`MONTHLYCOST_MOBILE=0`. This overrides Wi-Fi access for that process and retains
+the saved Settings preference. Stop an existing instance before using a different
+launch override. A phone never needs your Gmail or Mac account password.
 
 ## Connect Gmail
 
@@ -125,9 +176,9 @@ GitHub Actions runs the tests, lint, formatting, type checks, production build,
 credential-pattern checks, and dependency audits. It uses synthetic temporary
 ledgers; no live Gmail, Codex, or Keychain credentials are needed.
 
-For frontend development, run the backend on 8766 while keeping `MONTHLYCOST_PORT=8765` (the browser/OAuth origin), then `npm run dev` in `frontend`. The frontend proxies `/api` to that backend. With both processes running, launch Kharcha normally to unlock the development browser through that proxy. Use a separate `MONTHLYCOST_DATA_DIR` for development. Production uses only FastAPI on 8765 and serves the exported frontend assets; Node is not a production server.
+For frontend development, set `MONTHLYCOST_MOBILE=0` and run the backend on 8766 while keeping `MONTHLYCOST_PORT=8765` (the browser/OAuth origin), then `npm run dev` in `frontend`. The frontend proxies `/api` to that backend. With both processes running, launch Kharcha normally to unlock the development browser through that proxy. Use a separate `MONTHLYCOST_DATA_DIR` for development. Production uses FastAPI on 8765 for desktop access and a separate HTTPS listener on 8766 for paired phones, serving the same exported frontend assets; Node is not a production server.
 
-Runtime customization uses `MONTHLYCOST_PORT` and `MONTHLYCOST_DATA_DIR` environment variables. The launcher does not automatically load `.env` files. Real credentials must be imported through the app, not placed in environment files or source control.
+Runtime customization uses `MONTHLYCOST_PORT`, `MONTHLYCOST_MOBILE_PORT`, `MONTHLYCOST_MOBILE`, and `MONTHLYCOST_DATA_DIR` environment variables. The launcher does not automatically load `.env` files. Real credentials must be imported through the app, not placed in environment files or source control.
 
 Scanned PDF/OCR statements and unsupported statement layouts, SMS ingestion, automatic FX conversion, multiple Gmail accounts, remote access, and cloud AI extraction of raw emails are outside this version. Email-only totals always depend on available evidence; no records for a month do not establish zero spending.
 

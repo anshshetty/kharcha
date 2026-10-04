@@ -14,11 +14,11 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .gmail import GmailAuth, SyncEngine
 from .security import Vault, data_directory
 from .local_access import LocalAccess
+from .mobile_access import MobileAccess
 from .models import TransactionInput, validated
 from .store import Store, encode
 from .backup import BACKUP_TABLES, make_backup, restore_backup
@@ -40,6 +40,7 @@ def create_app(store=None, start_scheduler=True):
 
     merchant_research = MerchantResearch(store)
     access = LocalAccess(data_dir, port)
+    mobile = MobileAccess(store, data_dir, port)
     csrf = secrets.token_urlsafe(32)
 
     @contextmanager
@@ -71,7 +72,14 @@ def create_app(store=None, start_scheduler=True):
             access.publish()
         task = asyncio.create_task(schedule()) if start_scheduler else None
         ai_task = asyncio.create_task(schedule_advisor()) if start_scheduler else None
+        mobile_task = asyncio.create_task(mobile.run(app)) if start_scheduler else None
         yield
+        if mobile_task:
+            mobile_task.cancel()
+            try:
+                await mobile_task
+            except asyncio.CancelledError:
+                pass
         advisor.close()
         merchant_research.close()
         if start_scheduler:
@@ -91,19 +99,24 @@ def create_app(store=None, start_scheduler=True):
     app.state.auth = auth
     app.state.sync = sync
     app.state.local_access = access
+    app.state.mobile_access = mobile
     app.state.advisor = advisor
     app.state.merchant_research = merchant_research
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=["127.0.0.1", "localhost", "testserver"]
-        if not start_scheduler
-        else ["127.0.0.1", "localhost"],
-    )
 
     @app.middleware("http")
     async def local_security(request, call_next):
+        mobile_origin = request.scope.get("monthlycost.mobile")
+        if not mobile_origin and request.url.hostname not in (
+            ["127.0.0.1", "localhost", "testserver"]
+            if not start_scheduler
+            else ["127.0.0.1", "localhost"]
+        ):
+            return JSONResponse({"error": "Invalid host header"}, 400)
         origin = request.headers.get("origin")
-        if origin and origin not in (base, "http://localhost:" + str(port)):
+        allowed_origins = (
+            (mobile_origin,) if mobile_origin else (base, "http://localhost:" + str(port))
+        )
+        if origin and origin not in allowed_origins:
             return JSONResponse({"error": "Cross-origin requests are blocked"}, 403)
         # Google's OAuth redirect retains cross-site metadata on the final
         # document navigation. Permit only the app shell, never data APIs.
@@ -119,21 +132,51 @@ def create_app(store=None, start_scheduler=True):
             and not oauth_landing
         ):
             return JSONResponse({"error": "Cross-site requests are blocked"}, 403)
-        public_api = request.url.path in ("/api/health", "/api/auth/callback")
+        pairing = bool(
+            mobile_origin and request.url.path in ("/api/mobile/pair", "/api/mobile/pair-status")
+        )
+        if mobile_origin and (
+            request.url.path.startswith("/api/auth/")
+            or (request.url.path.startswith("/api/mobile/") and not pairing)
+            or request.url.path
+            in ("/api/backup", "/api/restore", "/api/erase", "/api/import/local")
+        ):
+            return JSONResponse({"error": "Use Kharcha on the Mac for this action."}, 403)
+        public_api = (
+            pairing
+            or request.url.path == "/api/health"
+            or (not mobile_origin and request.url.path == "/api/auth/callback")
+        )
+        phone_session = (
+            mobile.session(request.headers.get("authorization", "")) if mobile_origin else None
+        )
+        request.state.phone_session = phone_session
         if request.url.path.startswith("/api/") and not public_api:
-            if not access.authorized(request.headers.get("authorization", "")):
+            authorized = (
+                bool(phone_session)
+                if mobile_origin
+                else access.authorized(request.headers.get("authorization", ""))
+            )
+            if not authorized:
                 return JSONResponse(
-                    {"error": "Open Kharcha using Start Kharcha.command to unlock this browser."},
+                    {
+                        "error": "Pair this phone from Settings → Mobile access on the Mac."
+                        if mobile_origin
+                        else "Open Kharcha using Start Kharcha.command to unlock this browser."
+                    },
                     401,
                     headers={"Cache-Control": "no-store"},
                 )
         if request.method not in ("GET", "HEAD", "OPTIONS"):
-            if request.headers.get("x-csrf-token") != csrf:
+            expected_csrf = phone_session["csrf"] if phone_session else csrf
+            if pairing and origin != mobile_origin:
+                return JSONResponse({"error": "Pairing requires the same HTTPS origin"}, 403)
+            if not pairing and request.headers.get("x-csrf-token") != expected_csrf:
                 return JSONResponse({"error": "Refresh the app before making changes"}, 403)
             if request.headers.get("content-type", "").split(";")[0] != "application/json":
                 return JSONResponse({"error": "JSON required"}, 415)
         length = request.headers.get("content-length", "0")
-        if not length.isdigit() or int(length) > 100_000_000:
+        if not length.isdigit() or int(length) > (2048 if pairing else 100_000_000):
             return JSONResponse({"error": "Request too large"}, 413)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -164,11 +207,72 @@ def create_app(store=None, start_scheduler=True):
         )
 
     @app.get("/api/session")
-    def session():
-        return {"csrf": csrf}
+    def session(request: Request):
+        phone = request.state.phone_session
+        return {"csrf": phone["csrf"] if phone else csrf}
+
+    @app.get("/api/mobile/status")
+    def mobile_status():
+        return mobile.status()
+
+    @app.put("/api/mobile/preferences")
+    async def mobile_preferences(request: Request):
+        body = await request.json()
+        if not isinstance(body, dict) or set(body) != {"enabled"}:
+            raise ValueError("Choose whether mobile access is enabled")
+        mobile.configure(body["enabled"])
+        return mobile.status()
+
+    @app.get("/api/mobile/certificate")
+    def mobile_certificate():
+        if not mobile.root_path:
+            raise ValueError("Wait for mobile HTTPS to start before downloading its certificate")
+        return Response(
+            mobile.root_path.read_bytes(),
+            media_type="application/x-x509-ca-cert",
+            headers={"Content-Disposition": 'attachment; filename="Kharcha-Mobile.cer"'},
+        )
+
+    @app.post("/api/mobile/invite")
+    def mobile_invite():
+        return mobile.invite()
+
+    @app.post("/api/mobile/pair")
+    async def mobile_pair(request: Request):
+        if not request.scope.get("monthlycost.mobile"):
+            raise ValueError("Open the pairing link on your phone")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Enter a pairing link and device name")
+        return mobile.request_pair(body.get("secret"), body.get("name"))
+
+    @app.post("/api/mobile/pair-status")
+    async def mobile_pair_status(request: Request):
+        if not request.scope.get("monthlycost.mobile"):
+            raise ValueError("Open the pairing link on your phone")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Invalid pairing request")
+        return mobile.poll(body.get("id"), body.get("poll_token"))
+
+    @app.post("/api/mobile/approve")
+    async def mobile_approve(request: Request):
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("id"), str):
+            raise ValueError("Choose a pending phone")
+        mobile.approve(body["id"])
+        return mobile.status()
+
+    @app.post("/api/mobile/revoke")
+    async def mobile_revoke(request: Request):
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("id"), str):
+            raise ValueError("Choose a phone to disconnect")
+        mobile.revoke(body["id"])
+        return mobile.status()
 
     @app.get("/api/status")
-    def status():
+    def status(request: Request):
         with store.lock:
             job = store.db.execute(
                 "SELECT * FROM jobs ORDER BY started_at DESC,rowid DESC LIMIT 1"
@@ -196,8 +300,10 @@ def create_app(store=None, start_scheduler=True):
             "job": {**dict(job), "added": changes["added"], "scan": scan} if job else None,
             "new_transaction_count": changes["unseen"],
             "transaction_count": count,
-            "local_export_available": (ROOT / "august-2026-transactions.json").exists(),
-            "data_directory": str(data_dir),
+            "local_export_available": not request.scope.get("monthlycost.mobile")
+            and (ROOT / "august-2026-transactions.json").exists(),
+            "data_directory": "" if request.scope.get("monthlycost.mobile") else str(data_dir),
+            "mobile_client": bool(request.scope.get("monthlycost.mobile")),
             "parser_note": "Local evidence parser. Original mailbox templates require audit.",
         }
 
@@ -650,6 +756,8 @@ def create_app(store=None, start_scheduler=True):
                 base64.b64decode(body.get("file", ""), validate=True),
             )
             store.vault.delete("gmail-token")
+            mobile.clear()
+            store.set_setting("mobile_access_enabled", mobile.preference)
         return {"restored": True}
 
     @app.post("/api/erase")
@@ -668,6 +776,8 @@ def create_app(store=None, start_scheduler=True):
                 db.executemany("INSERT INTO categories VALUES(?)", [(c,) for c in CATEGORIES])
             for name in ("gmail-token", "oauth-client", "email-cache-key"):
                 store.vault.delete(name)
+            mobile.clear()
+            store.set_setting("mobile_access_enabled", mobile.preference)
             with store.lock:
                 store.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 store.db.execute("VACUUM")

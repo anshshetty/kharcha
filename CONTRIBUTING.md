@@ -26,13 +26,15 @@ failure; explain any necessary configuration change in the pull request.
 
 ## Development
 
-Keep the local architecture: a static React frontend and FastAPI bound to
-loopback. For frontend development, start the backend using
-`MONTHLYCOST_PORT=8765 .venv/bin/python -m uvicorn backend.app:create_app --factory --host 127.0.0.1 --port 8766 --no-access-log`,
+Keep the local architecture: a static React frontend and FastAPI with separate
+desktop and paired HTTPS LAN access. For frontend development, disable the mobile
+listener and start the backend using
+`MONTHLYCOST_MOBILE=0 MONTHLYCOST_PORT=8765 .venv/bin/python -m uvicorn backend.app:create_app --factory --host 127.0.0.1 --port 8766 --no-access-log --no-proxy-headers`,
 then `npm run dev --prefix frontend`. Use a separate `MONTHLYCOST_DATA_DIR` for
 development. With both processes running, the normal launcher authenticates
 through the development proxy and opens the frontend. Do not expose either
-server to the network.
+development server to the network. Mobile access serves only the built static
+frontend; it shares the production ledger and has its own authentication boundary.
 
 The launcher refreshes installed dependencies when their lockfiles change.
 Update the appropriate manifest and lockfile together. Development tools are

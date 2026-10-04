@@ -1,8 +1,9 @@
 # Security policy
 
-Kharcha is a local, single-user macOS application. Only the latest source
-revision is supported. It is not designed for Internet hosting, shared browser
-profiles, remote access, or use as an authoritative bank ledger.
+Kharcha is a local, single-user macOS application with paired browser access on
+the same private IPv4 subnet. Only the latest source revision is supported. It
+is not designed for Internet hosting, shared browser profiles, access outside
+the local network, or use as an authoritative bank ledger.
 
 ## Report a vulnerability
 
@@ -18,12 +19,38 @@ until a maintainer has established a private channel.
 
 ## Security boundaries
 
-- The launcher binds the backend to `127.0.0.1`. Every data API requires a random
+- The launcher binds the desktop backend to `127.0.0.1`. Every data API requires a random
   credential rotated at process startup. The current credential is in a `0600`
   runtime file inside the OS user's `0700` app directory. The launcher transfers
   it in a URL fragment, which the browser immediately removes and keeps in
   origin-scoped session storage. Credentials are never put in query strings,
   cookies shared across localhost ports, or source control.
+- Mobile access is on by default unless disabled in Settings or for a launch.
+  A separate HTTPS listener binds only the selected private Wi-Fi/Ethernet IPv4
+  address (default port `8766`), requires clients in its detected subnet, and
+  rejects unexpected Host/Origin headers. Forwarded headers cannot change its
+  listener identity, client address, or protocol. Desktop credentials are never
+  accepted by this listener, and mobile credentials never unlock desktop APIs.
+  Network reachability alone grants no ledger access.
+- Pairing invitations are random 256-bit, single-use links that expire after
+  five minutes. They travel in a URL fragment removed by the phone interface.
+  Pairing attempts are limited; the Mac owner approves the matching six-digit
+  confirmation code. Polling uses a separate random credential, and only an
+  approved request receives a mobile credential. Device sessions are held in
+  memory, use individual CSRF tokens, and are revoked on restart, network
+  changes, disabling access, restoring/erasing data, or explicit disconnection.
+  Gmail authentication, device management, backups, restore, data erasure, and
+  workspace-local import are denied on the mobile listener by the backend.
+- HTTPS uses an app-specific local certificate authority. Its signing key and
+  server key are `0600` files in the app directory's `0700` `mobile-tls` folder,
+  excluded from portable backups. The public certificate is downloadable only
+  from the authenticated desktop API. Transfer it directly from the Mac and
+  explicitly trust it on the phone; no system trust is installed automatically.
+  Trusting a local CA is a device-level trust decision: remove it from the phone
+  when no longer using Kharcha. Changing the Mac's IP generates a fresh server
+  certificate under the same CA. IPv6-only networks and guest-network isolation
+  are not supported. Same-subnet checks do not establish a device's identity;
+  pairing remains required even on trusted Wi-Fi.
 - The unauthenticated health endpoint contains no ledger data. The OAuth callback
   is public because Google navigates to it; it requires an expiring, single-use
   state and PKCE. Host/origin checks and CSRF validation remain enabled.

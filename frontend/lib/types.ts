@@ -115,6 +115,7 @@ export interface Account {
   owned: number;
 }
 export interface AppStatus {
+  mobile_client: boolean;
   configured: boolean;
   ai_advisor_enabled: boolean;
   ai_advisor_consent_version: number;

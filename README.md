@@ -49,6 +49,27 @@ For Gmail setup, detailed features, and troubleshooting, see the [guide](docs/gu
 
 Imported transactions may need corrections. Review anything unclear before relying on the totals.
 
+## Use it on your phone
+
+Keep Kharcha running on an awake Mac and connect your phone to the same private
+Wi-Fi network. The Mac keeps the ledger; approved phone edits update that same
+ledger over a separate HTTPS connection.
+
+1. On the Mac, open **Settings → Mobile access** and follow **First-time
+   certificate setup**. Transfer and trust only the certificate from your Mac.
+2. Choose **Pair a phone**, scan the QR code, and request access on the phone.
+3. Compare the code on both screens and approve the matching request on the Mac.
+
+Wi-Fi access is enabled by default, but phones cannot read the ledger before
+approval. Invitations expire after five minutes. Turning access off disconnects
+paired phones; restarting the app or changing networks requires fresh pairing.
+Gmail sign-in, device management, backups, restore and deleting all data remain
+Mac-only. No Internet hosting or router port forwarding is required.
+
+For a desktop-only launch, use `python3 scripts/launch.py --no-mobile` or set
+`MONTHLYCOST_MOBILE=0`. See the [phone setup guide](docs/guide.md#use-kharcha-on-your-phone)
+for certificate instructions, session limits and troubleshooting.
+
 ## Contributing and license
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks, and

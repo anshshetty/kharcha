@@ -1,0 +1,67 @@
+/* Phone pairing and Wi-Fi access controls. */
+/* Local phone pairing and device management. */
+.phone-access {
+  width: min(100%, 520px);
+  margin: 8vh auto;
+  padding: 20px;
+}
+.phone-access .panel {
+  display: grid;
+  gap: 20px;
+}
+.phone-access h1 {
+  font-size: 26px;
+}
+.phone-access h2 {
+  font-size: 18px;
+}
+.phone-access form {
+  display: grid;
+  gap: 16px;
+}
+.pairing-code {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+.pairing-code-inline {
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+.mobile-address {
+  overflow-wrap: anywhere;
+  margin: 20px 0;
+}
+.mobile-access-panel details {
+  margin: 20px 0;
+}
+.mobile-access-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.mobile-setup {
+  padding-left: 22px;
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.certificate-fingerprint {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  margin-top: 12px;
+}
+.mobile-pairing {
+  margin-top: 16px;
+}
+.mobile-pairing img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.mobile-device {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
