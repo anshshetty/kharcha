@@ -131,18 +131,28 @@ export async function downloadTransactions(): Promise<void> {
 export async function downloadLocalFile(
   path: string,
   filename: string,
+  init?: RequestInit,
+  expectedType?: string,
 ): Promise<void> {
-  const response = await localFetch(path);
+  const response = await localFetch(path, init);
   if (!response.ok) {
-    const result = await response.json();
+    const result = await response.json().catch(() => null);
     throw new Error(responseError(result, 'Could not download this file.'));
   }
+  if (
+    expectedType &&
+    response.headers.get('content-type')?.split(';')[0] !== expectedType
+  )
+    throw new Error('Kharcha returned an unreadable PDF. Try again.');
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  link.remove();
+  // Give mobile browsers time to start saving the file.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 export async function api<T = unknown>(
   path: string,
@@ -236,3 +246,33 @@ export const kinds = [
   'reimbursement',
   'lending',
 ];
+
+export async function downloadSpendingPdf(
+  options: unknown,
+  filename: string,
+): Promise<void> {
+  const session = await api<unknown>('/session');
+  if (
+    typeof session !== 'object' ||
+    session === null ||
+    !('csrf' in session) ||
+    typeof session.csrf !== 'string' ||
+    !session.csrf
+  )
+    throw new Error(
+      'Could not refresh the local session. Refresh Kharcha and try again.',
+    );
+  await downloadLocalFile(
+    '/report.pdf',
+    filename,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': session.csrf,
+      },
+      body: JSON.stringify(options),
+    },
+    'application/pdf',
+  );
+}

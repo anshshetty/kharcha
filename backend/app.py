@@ -705,6 +705,23 @@ def create_app(store=None, start_scheduler=True):
             raise ValueError("No local transaction export found")
         return {"imported": store.import_export(json.loads(path.read_text()))}
 
+    @app.post("/api/report.pdf")
+    async def export_pdf(request: Request):
+        from .pdf_report import build_pdf, parse_options
+
+        options = parse_options(await request.json())
+        # Rendering is CPU work; keep sync and phone requests responsive.
+        from starlette.concurrency import run_in_threadpool
+
+        content = await run_in_threadpool(build_pdf, store, options)
+        return Response(
+            content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=kharcha-{options.start}-to-{options.end}.pdf"
+            },
+        )
+
     @app.get("/api/export.csv")
     def export_csv():
         output = io.StringIO()

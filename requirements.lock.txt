@@ -32,6 +32,7 @@ pypdfium2==5.13.0
 pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
+reportlab==4.4.10
 six==1.17.0
 starlette==1.6.0
 typing-inspection==0.4.4

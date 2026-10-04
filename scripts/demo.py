@@ -339,7 +339,7 @@ READ_ROUTES = re.compile(
 )
 WRITE_ROUTES = {
     "POST": re.compile(
-        r"/api/(?:transactions|transactions/[^/]+/undo-edit|review/[^/]+/resolve|categories|sync/seen)"
+        r"/api/(?:transactions|transactions/[^/]+/undo-edit|review/[^/]+/resolve|categories|sync/seen|report\.pdf)"
     ),
     "PATCH": re.compile(r"/api/(?:transactions/[^/]+(?:/edit)?|financial-context)"),
     "PUT": re.compile(r"/api/financial-context"),

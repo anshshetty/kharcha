@@ -283,3 +283,35 @@ Kharcha is available under the [MIT license](../LICENSE). Read
 [SECURITY.md](../SECURITY.md) for its threat model, private reporting process, and
 maintainer release checks. Local email-based totals remain provisional evidence,
 not verified bank balances.
+
+### Export a spending PDF
+
+Choose **Export PDF** on Overview or Transactions, set an inclusive date range,
+and choose whether to include the transaction list. **Download PDF** creates a
+paginated A4 report on the Mac and downloads it to the current browser, including
+a paired phone. The PDF uses Kharcha's light-theme colors, Manrope typography,
+logo, spending ribbon and chart styling, adapted to A4. Its monthly chart uses the same dates
+and filters as the report; long ranges retain every recorded month. No external
+PDF service or automatic sharing is used. On a phone,
+use the browser's download/save controls if it previews the file.
+
+Overview exports the selected currency with no transaction filters. Transactions
+also carries its active category, type, search and spending-group filters into the
+chosen range. New transactions includes payments viewed during the current visit
+and reports each currency separately without conversion. The selected range
+replaces the screen's month; applied filters are printed in the report.
+
+Total personal spending includes regular, fixed and unavoidable costs, personal
+split shares and refunds received in the selected dates. Card bills, transfers,
+income and excluded payments contribute zero. Category/group filters select whole
+matching payments, so their totals can include other personal split categories.
+The payment breakdown uses recorded **accounts**, since payment methods are not
+reliably stored. The optional list distinguishes the original debit/credit amount
+from its personal-spending contribution. Reports do not include source email
+bodies, private notes, authentication tokens or automatic external links.
+
+The bundled report font supports Latin and Cyrillic text. Characters it cannot
+render appear explicitly as `[U+code]`; currency amounts use ISO codes such as
+`INR` for unambiguous printing. Coverage warnings remain visible. Empty selections
+produce a report stating that no records matched, rather than implying complete
+financial coverage.
