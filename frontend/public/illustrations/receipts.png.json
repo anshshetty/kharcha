@@ -1,0 +1,5 @@
+{
+  "prompt": "Use case: stylized-concept. Asset type: transparent onboarding illustration for Kharcha, a local personal spending app on Mac. Create one exceptionally polished editorial 3D still life: three clean ivory paper receipts gently fanned out, each with embossed abstract chart bars and short blank ink strokes (no words or numbers), one forest-green circular token with a simple white rupee symbol, and a restrained ochre bookmark tab. Beautiful tactile uncoated paper, soft rounded edges, subtle realistic lighting from upper left, strong readable silhouette at 220 pixels. Forest green #176b58, charcoal, ivory, muted gold #b28a35. Orthographic three-quarter view, compact horizontal composition with generous transparent padding, objects floating as one cohesive group. No devices, no UI panels, no gradients as backdrop, no ground plane, no text, no logos, no people, no extra objects. Transparent background with native alpha, preserve clean white paper edges.",
+  "tool": "image_gen",
+  "purpose": "Kharcha onboarding and empty-state illustration"
+}

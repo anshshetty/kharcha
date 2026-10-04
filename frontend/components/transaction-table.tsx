@@ -12,6 +12,8 @@ import {
 import { Blank } from './common';
 import { money, kindName } from '@/lib/api';
 import type { Transaction, TransactionSelection } from '@/lib/types';
+import { CategoryQuickEdit } from './category-quick-edit';
+import { CategorySymbol } from './spending-graphics';
 import { observeVisibleTransactions } from '@/lib/transaction-visibility';
 
 export function TransactionTable({
@@ -20,12 +22,16 @@ export function TransactionTable({
   newOnly = false,
   onVisible,
   visibilityEnabled = true,
+  categories,
+  onUpdated,
 }: {
   rows: Transaction[];
   onSelect: (t: TransactionSelection) => void;
   newOnly?: boolean;
   onVisible: (ids: string[]) => Promise<void>;
   visibilityEnabled?: boolean;
+  categories?: string[];
+  onUpdated?: (message: string) => void;
 }) {
   const body = useRef<HTMLTableSectionElement>(null);
   useEffect(() => {
@@ -72,6 +78,10 @@ export function TransactionTable({
             key={t.id}
             className={`transaction-row${t.is_new ? ' transaction-new' : ''}`}
             onClick={(event) => {
+              if (
+                (event.target as HTMLElement).closest('[data-category-editor]')
+              )
+                return;
               event.currentTarget
                 .querySelector('button')
                 ?.focus({ preventScroll: true });
@@ -87,20 +97,13 @@ export function TransactionTable({
                   onSelect(t);
                 }}
               >
-                <span
-                  className={
-                    'merchant-avatar ' +
-                    (t.direction === 'credit' ? 'credit' : '')
-                  }
-                >
-                  {t.direction === 'credit' ? (
+                {t.direction === 'credit' ? (
+                  <span className="merchant-avatar credit">
                     <ArrowDownRight size={18} />
-                  ) : (
-                    (t.merchant_display || t.counterparty)
-                      .slice(0, 1)
-                      .toUpperCase()
-                  )}
-                </span>
+                  </span>
+                ) : (
+                  <CategorySymbol name={t.category} size={18} />
+                )}
                 <span>
                   <b title={t.merchant_display || t.counterparty}>
                     {t.merchant_display || t.counterparty}
@@ -140,15 +143,23 @@ export function TransactionTable({
                 ...(newOnly ? { year: 'numeric' as const } : {}),
               })}
             </TableCell>
-            <TableCell className="transaction-extra">
-              <span
-                className={
-                  'category-chip ' +
-                  (t.category === 'Uncategorized' ? 'uncategorized' : '')
-                }
-              >
-                {t.category}
-              </span>
+            <TableCell className="transaction-extra" data-category-editor>
+              {categories && onUpdated ? (
+                <CategoryQuickEdit
+                  transaction={t}
+                  categories={categories}
+                  onUpdated={onUpdated}
+                />
+              ) : (
+                <span
+                  className={
+                    'category-chip ' +
+                    (t.category === 'Uncategorized' ? 'uncategorized' : '')
+                  }
+                >
+                  {t.category}
+                </span>
+              )}
             </TableCell>
             <TableCell className="muted transaction-extra">
               {t.account}

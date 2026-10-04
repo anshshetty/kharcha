@@ -82,7 +82,7 @@ Previously exported transaction summaries can be imported from the app. They are
 
 Navigation keeps the selected screen, month, currency, filters, transaction, and source email in the local URL. Browser Back/Forward and the labeled return buttons retrace these steps; search typing does not add a history entry for every letter. Refresh keeps the current view. Transaction filters are shown as removable chips with a single clear-all action, and do not affect the Overview's recent transactions. On mobile, the bottom navigation provides direct access to Overview, Transactions, Review, and Settings.
 
-- Six completed months are shown with a separate current-month bar. The latest completed month opens by default. Reporting uses Asia/Kolkata dates and integer monetary values.
+- Six completed months are shown with a separate current-month bar. The current month opens by default. Reporting uses Asia/Kolkata dates and integer monetary values.
 - Purchases and payments to people count as spending. Card bill repayments, own transfers, investments, wallet funding, loan proceeds, and financing adjustments are separate movements.
 - EMI installments count in their charge month. When financing is established, exclude the original financed purchase. Missing EMI details are not inferred from the card bill total.
 - Refunds reduce the month received. Link a refund to its original purchase where possible. A partial refund of a shared bill needs the user's personal-share allocation reviewed.
@@ -172,7 +172,11 @@ Saving a statement also enriches existing transactions with unique matching UPI 
 
 ## Automatic AI spending review
 
-Overview leads with current-month **Regular spending**. In **Settings → Categories
+Overview opens on the current month. Use the **Month** picker beside **Currency**
+to view any previous month, including older saved history. The regular-spending
+breakdown, supporting transactions, AI insights and full ledger details all follow
+the selected month. Completed months include every day; only the current month
+is labeled “so far.” In **Settings → Categories
 & automatic rules**, add your own categories and choose which are **Fixed** or
 **Unavoidable**. Those categories remain in ledger totals but are excluded from
 the main expense breakdown and AI insight evidence. No category or transaction
@@ -187,13 +191,18 @@ fixed/unavoidable assumptions are removed, so select your preferences once in Se
 Category totals use personal allocations; linked refunds follow the
 original expense categories. Known merchant aliases are grouped for display,
 without modifying transaction identities. Regular spending is not assumed to be
-avoidable. Full ledger details and historical views remain available separately.
+avoidable. Full ledger details remain available below the main insights.
 
-`GET /api/spending-focus?currency=INR` provides current-month totals, categories,
+`GET /api/spending-focus?currency=INR&month=YYYY-MM` provides selected-month totals, categories,
 merchants, repeated purchases and coverage directly from the ledger, even when
 AI is unavailable. Codex interprets the main drivers and repeated purchases;
 there is no forced savings target, arbitrary percentage cut, or obligation to
-produce recommendations. Each insight links to current-month evidence. The AI
+produce recommendations. Each insight links to selected-month evidence. Omit
+`month` to use the current month. AI status, input preview and refresh also accept
+`month`; reviews are cached separately for each month and currency. Use **Refresh
+insights** to generate a previous month’s review when AI is enabled. Browsing
+months does not start an AI run. Automatic reviews continue to focus on the
+current month. The AI
 never changes exemptions, identities, amounts, categories or accounting types.
 
 `GET /api/financial-context` includes `fixed_categories`, `unavoidable_categories`
@@ -206,7 +215,7 @@ Changing preferences invalidates old AI insights before they can be reused.
 Enable **Allow AI spending review** in Connections & rules, read the data-sharing notice, then choose **Allow sending data & enable AI**. The notice names OpenAI as the recipient through Codex and includes a local preview of the current INR input. Consent is versioned; older enablement settings require confirmation of this notice. AI is disabled for new ledgers and after a restore. Turning it off cancels the current review. After sync finishes, the app checks for analysis once a minute. Automatic
 attempts are limited to one per day across currencies; manual refresh has a
 one-minute cooldown. Analysis uses the existing signed-in Codex allowance.
-The app sends current-month regular-spending dates, amounts, currency, merchant/payee names, categories, transaction types, internal IDs, notes, corrections, and review warnings. It also sends category and merchant totals (including fixed/unavoidable summaries), repeated purchases, aggregate prior merchant activity, record coverage, and saved financial context: priorities, commitments, people, notes, targets, and category preferences. Raw email bodies, statement PDFs, Gmail credentials, and separate account/reference fields are excluded. Names and free-text notes can contain personal information. The preview is created locally from the same snapshot function used for the AI input; later reviews use updated data. Disabling cannot retract data already sent. Results are stored locally and in backups.
+The app sends selected-month regular-spending dates, amounts, currency, merchant/payee names, categories, transaction types, internal IDs, notes, corrections, and review warnings. It also sends category and merchant totals (including fixed/unavoidable summaries), repeated purchases, aggregate prior merchant activity, record coverage, and saved financial context: priorities, commitments, people, notes, targets, and category preferences. Raw email bodies, statement PDFs, Gmail credentials, and separate account/reference fields are excluded. Names and free-text notes can contain personal information. The preview is created locally from the same snapshot function used for the AI input; later reviews use updated data. Disabling cannot retract data already sent. Results are stored locally and in backups.
 Changed ledger data hides outdated insights until regenerated, while the factual
 breakdown updates independently. No separate daemon is installed; the app must
 remain running.

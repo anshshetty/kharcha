@@ -338,17 +338,19 @@ READ_ROUTES = re.compile(
     r"|financial-brief|spending-focus|ai-advisor(?:/preview)?|export\.csv)"
 )
 WRITE_ROUTES = {
-    "POST": re.compile(r"/api/(?:transactions|review/[^/]+/resolve|categories|sync/seen)"),
-    "PATCH": re.compile(r"/api/(?:transactions/[^/]+|financial-context)"),
+    "POST": re.compile(
+        r"/api/(?:transactions|transactions/[^/]+/undo-edit|review/[^/]+/resolve|categories|sync/seen)"
+    ),
+    "PATCH": re.compile(r"/api/(?:transactions/[^/]+(?:/edit)?|financial-context)"),
     "PUT": re.compile(r"/api/financial-context"),
 }
 
 
-def illustrative_analysis(store, as_of, currency):
+def illustrative_analysis(store, as_of, currency, month=None):
     """Locally computed example cards, explicitly distinguished from an AI run."""
     from backend.spending_focus import spending_focus
 
-    focus = spending_focus(store, currency, as_of=as_of)
+    focus = spending_focus(store, currency, as_of=as_of, month=month)
     patterns = []
     if focus["merchants"]:
         merchant = focus["merchants"][0]
@@ -378,7 +380,7 @@ def illustrative_analysis(store, as_of, currency):
         (
             row
             for row in store.list_transactions()
-            if row["date"].startswith(as_of[:7])
+            if row["date"].startswith(focus["month"])
             and row["currency"] == currency
             and row["allocations"]
         ),
@@ -397,7 +399,7 @@ def illustrative_analysis(store, as_of, currency):
         )
     return {
         "state": "complete",
-        "focus_month": as_of[:7],
+        "focus_month": focus["month"],
         "currency": currency,
         "generated_at": as_of + "T12:00:00+05:30",
         "message": "Illustrative demo cards calculated locally. No AI service was called.",
@@ -463,18 +465,28 @@ def create_demo_app(store, port):
             from backend.spending_focus import spending_focus
 
             return JSONResponse(
-                spending_focus(store, request.query_params.get("currency", "INR"), as_of=as_of),
+                spending_focus(
+                    store,
+                    request.query_params.get("currency", "INR"),
+                    as_of=as_of,
+                    month=request.query_params.get("month"),
+                ),
                 headers={"Cache-Control": "no-store", "X-Kharcha-Demo": "synthetic"},
             )
         if path == "/api/ai-advisor" and response.status_code == 200:
             return JSONResponse(
-                illustrative_analysis(store, as_of, request.query_params.get("currency", "INR")),
+                illustrative_analysis(
+                    store,
+                    as_of,
+                    request.query_params.get("currency", "INR"),
+                    request.query_params.get("month"),
+                ),
                 headers={"Cache-Control": "no-store", "X-Kharcha-Demo": "synthetic"},
             )
         if path in {"/", "/index.html"} and response.status_code == 200:
             body = b"".join([chunk async for chunk in response.body_iterator]).decode()
             ribbon = (
-                '<div role="note" style="position:fixed;bottom:12px;left:50%;'
+                '<div class="synthetic-demo-notice" role="note" style="position:fixed;bottom:12px;left:50%;'
                 "transform:translateX(-50%);z-index:99999;padding:8px 16px;border-radius:99px;"
                 "background:#13291f;color:#d7ffe7;border:1px solid #77a98c;"
                 "font:600 12px/1.4 system-ui;text-align:center;max-width:90vw;"

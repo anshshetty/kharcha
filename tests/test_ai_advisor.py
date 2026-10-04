@@ -176,3 +176,75 @@ def test_snapshot_uses_disclosed_fields_and_excludes_raw_private_fields(store):
         "corrected",
         "warnings",
     }
+
+
+def test_historical_snapshot_has_full_month_and_no_later_background(store):
+    prior = add(store, date="2026-07-01", counterparty="Example Merchant")
+    selected = add(store, date="2026-08-31", counterparty="Example Merchant", amount_minor=500)
+    add(store, date="2026-09-01", counterparty="Example Merchant", amount_minor=999)
+    data = snapshot(store, month="2026-08")
+    assert data["as_of"] == "2026-08-31"
+    assert data["focus"]["current"] is False
+    assert [t["id"] for t in data["evidence"]] == [selected["id"]]
+    assert data["merchant_background"][0]["prior_payments"] == 1
+    assert prior["id"] not in {t["id"] for t in data["evidence"]}
+    assert data["total_records"] == 2
+
+
+def test_monthly_cache_survives_switching_and_newer_records(store):
+    saved(store)
+    historical = add(store, date="2026-08-31", amount_minor=500)
+    data = snapshot(store, month="2026-08")
+    historical_result = result()
+    historical_result["patterns"][0]["transaction_ids"] = [historical["id"]]
+    advisor = Advisor(store)
+    state = {
+        "state": "complete",
+        "message": "Complete",
+        "review_version": REVIEW_VERSION,
+        "focus_month": "2026-08",
+        "currency": "INR",
+        "result": historical_result,
+        "digest": fingerprint(data),
+    }
+    advisor._save("INR", state, "2026-08")
+    assert advisor.status(month="2026-08")["result"] == historical_result
+    assert "result" not in advisor.status("USD", "2026-08")
+    assert "result" not in advisor.status(month="2026-07")
+    add(store, date="2026-09-02", amount_minor=100)
+    assert advisor.status()["stale"]
+    assert advisor.status(month="2026-08")["result"] == historical_result
+    add(store, date="2026-08-01", amount_minor=100)
+    assert advisor.status(month="2026-08")["stale"]
+    assert "result" not in advisor.status(month="2026-08")
+
+
+def test_historical_refresh_targets_selected_month_and_keeps_current_cache(store, monkeypatch):
+    current = saved(store)
+    selected = add(store, date="2026-08-31")
+    calls = []
+
+    class DeferredThread:
+        def __init__(self, target, args, daemon):
+            calls.append((target, args))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("backend.ai_advisor.threading.Thread", DeferredThread)
+    advisor = Advisor(store)
+    status = advisor.start(force=True, month="2026-08")
+    assert status["state"] == "running"
+    data, generation = calls[0][1]
+    assert data["focus_month"] == "2026-08"
+    assert [t["id"] for t in data["evidence"]] == [selected["id"]]
+    reviewed = result()
+    reviewed["patterns"][0]["transaction_ids"] = [selected["id"]]
+    advisor._save_current("INR", generation, {"state": "complete", "result": reviewed}, "2026-08")
+    advisor.lock.release()
+    assert advisor.status(month="2026-08")["result"] == reviewed
+    assert store.get_setting("ai_advisor") == current
+    # A different month still shares the usage cooldown; browsing never starts a review.
+    advisor.start(force=True, month="2026-07")
+    assert len(calls) == 1
+    assert not advisor.lock.locked()

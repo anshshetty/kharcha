@@ -3,6 +3,21 @@ const staleSession = 'Refresh the app before making changes';
 const accessKey = 'monthlycost.access';
 const unlockMessage =
   'Open Kharcha using Start Kharcha.command to unlock this browser.';
+let accessRequired = false;
+const accessListeners = new Set<() => void>();
+
+export const isLocalAccessRequired = () => accessRequired;
+export function subscribeLocalAccess(listener: () => void) {
+  accessListeners.add(listener);
+  return () => {
+    accessListeners.delete(listener);
+  };
+}
+function setAccessRequired(required: boolean) {
+  if (accessRequired === required) return;
+  accessRequired = required;
+  for (const listener of accessListeners) listener();
+}
 
 export function localAuthorization(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -22,10 +37,14 @@ export function localAuthorization(): Record<string, string> {
     if (/^[A-Za-z0-9_-]{43}$/.test(incoming)) {
       window.sessionStorage.setItem(accessKey, incoming);
       token = '';
+      setAccessRequired(false);
     }
   }
   const access = window.sessionStorage.getItem(accessKey);
-  if (!access) throw new Error(unlockMessage);
+  if (!access) {
+    setAccessRequired(true);
+    throw new Error(unlockMessage);
+  }
   return { Authorization: 'Bearer ' + access };
 }
 
@@ -51,6 +70,7 @@ async function localFetch(path: string, init?: RequestInit): Promise<Response> {
     if (typeof window !== 'undefined')
       window.sessionStorage.removeItem(accessKey);
     token = '';
+    setAccessRequired(true);
     throw new Error(unlockMessage);
   }
   return response;

@@ -153,3 +153,18 @@ def test_demo_blocks_live_integrations_and_preserves_authentication(monkeypatch)
                 == 200
             )
             assert store.get_setting("financial_context")["monthly_target_minor"] == 6000000
+
+
+def test_demo_insights_follow_selected_month():
+    with demo_store(date(2026, 9, 15)) as store:
+        with LocalClient(create_demo_app(store, 8875)) as client:
+            focus = client.get("/api/spending-focus?month=2026-08").json()
+            analysis = client.get("/api/ai-advisor?month=2026-08").json()
+            assert focus["month"] == analysis["focus_month"] == "2026-08"
+            assert focus["as_of"] == "2026-08-31"
+            assert focus["current"] is False
+            by_id = {row["id"]: row for row in store.list_transactions()}
+            for finding in analysis["result"]["patterns"]:
+                assert all(
+                    by_id[id]["date"].startswith("2026-08") for id in finding["transaction_ids"]
+                )

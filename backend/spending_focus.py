@@ -1,6 +1,7 @@
-"""Current-month spending facts, respecting the user's protected cost groups."""
+"""Monthly spending facts, respecting the user's protected cost groups."""
 
 from collections import defaultdict
+import calendar
 import re
 
 from .categorization import merchant_match
@@ -63,11 +64,25 @@ def merchant_name(t):
     return t["counterparty"]
 
 
-def spending_focus(store, currency="INR", *, rows=None, as_of=None):
+def focus_period(month=None, as_of=None):
+    """Use today for the current month and the last day for a completed month."""
+    as_of = as_of or now()[:10]
+    month = month or as_of[:7]
+    if not re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month) or month.startswith("0000"):
+        raise ValueError("Use YYYY-MM for the month")
+    if month > as_of[:7]:
+        raise ValueError("Choose the current month or an earlier month")
+    if month < as_of[:7]:
+        year, number = map(int, month.split("-"))
+        as_of = f"{month}-{calendar.monthrange(year, number)[1]:02d}"
+    return month, as_of
+
+
+def spending_focus(store, currency="INR", *, rows=None, as_of=None, month=None):
     if not re.fullmatch(r"[A-Z]{3}", currency):
         raise ValueError("Use a three-letter currency code")
-    as_of = as_of or now()[:10]
-    month = as_of[:7]
+    today = as_of or now()[:10]
+    month, as_of = focus_period(month, today)
     context = store.get_setting("financial_context", {})
     policy = {key: context.get(key, []) for key in ("fixed_categories", "unavoidable_categories")}
     rows = store.list_transactions() if rows is None else rows
@@ -150,6 +165,7 @@ def spending_focus(store, currency="INR", *, rows=None, as_of=None):
     merchant_rows = finished(merchants)
     return {
         "month": month,
+        "current": month == today[:7],
         "as_of": as_of,
         "currency": currency,
         "spending_minor": sum(t["spend_minor"] for t in selected),
@@ -174,4 +190,16 @@ def spending_focus(store, currency="INR", *, rows=None, as_of=None):
             "flagged_count": len(flagged_ids),
         },
         "policy": policy,
+        "group_ids": {
+            "regular": sorted(other_ids),
+            "fixed": sorted({id for g in fixed.values() for id in g["transaction_ids"]}),
+            "unavoidable": sorted(
+                {id for g in unavoidable.values() for id in g["transaction_ids"]}
+            ),
+        },
+        "group_totals": {
+            "regular": totals["other"],
+            "fixed": totals["fixed"],
+            "unavoidable": totals["unavoidable"],
+        },
     }

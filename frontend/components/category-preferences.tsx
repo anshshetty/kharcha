@@ -21,6 +21,7 @@ export function CategoryPreferences({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [undoValue, setUndoValue] = useState<CategoryChoices | null>(null);
   const names = [
     ...new Set([
       ...categories,
@@ -32,27 +33,14 @@ export function CategoryPreferences({
   const visible = names.filter((name) =>
     name.toLowerCase().includes(query.toLowerCase()),
   );
-  const changed = JSON.stringify(draft) !== JSON.stringify(initial);
-  const setGroup = (category: string, group: string) => {
-    setSaved(false);
-    setDraft((value) => ({
-      ...value,
-      fixed_categories: [
-        ...value.fixed_categories.filter((name) => name !== category),
-        ...(group === 'fixed' ? [category] : []),
-      ],
-      unavoidable_categories: [
-        ...value.unavoidable_categories.filter((name) => name !== category),
-        ...(group === 'unavoidable' ? [category] : []),
-      ],
-    }));
-  };
-  const save = async () => {
+  const save = async (next: CategoryChoices, previous = draft) => {
+    setDraft(next);
     setBusy(true);
     setError('');
     setSaved(false);
     try {
-      await api('/financial-context', 'PATCH', draft);
+      await api('/financial-context', 'PATCH', next);
+      setUndoValue(previous);
       setSaved(true);
       await onSaved();
     } catch (e) {
@@ -60,6 +48,19 @@ export function CategoryPreferences({
     } finally {
       setBusy(false);
     }
+  };
+  const setGroup = (category: string, group: string) => {
+    void save({
+      ...draft,
+      fixed_categories: [
+        ...draft.fixed_categories.filter((n) => n !== category),
+        ...(group === 'fixed' ? [category] : []),
+      ],
+      unavoidable_categories: [
+        ...draft.unavoidable_categories.filter((n) => n !== category),
+        ...(group === 'unavoidable' ? [category] : []),
+      ],
+    });
   };
   return (
     <div className="category-preferences">
@@ -106,17 +107,16 @@ export function CategoryPreferences({
               <Checkbox
                 aria-label={'Major project: ' + name}
                 checked={draft.project_categories.includes(name)}
-                onCheckedChange={(checked) => {
-                  setSaved(false);
-                  setDraft((value) => ({
-                    ...value,
+                onCheckedChange={(checked) =>
+                  void save({
+                    ...draft,
                     project_categories: checked
-                      ? [...value.project_categories, name]
-                      : value.project_categories.filter(
+                      ? [...draft.project_categories, name]
+                      : draft.project_categories.filter(
                           (category) => category !== name,
                         ),
-                  }));
-                }}
+                  })
+                }
               />
               Major project
             </label>
@@ -131,12 +131,32 @@ export function CategoryPreferences({
         {draft.unavoidable_categories.length} unavoidable ·{' '}
         {draft.project_categories.length} major-project categories
       </p>
-      <div className="settings-actions">
-        <Button disabled={busy || !changed} onClick={() => void save()}>
-          {busy ? 'Saving…' : 'Save category choices'}
-        </Button>
-        {changed && <span>Unsaved changes</span>}
-        {saved && <output>Category choices saved.</output>}
+      <div className="settings-actions" aria-live="polite">
+        <span>
+          {busy
+            ? 'Saving…'
+            : error
+              ? 'Not saved'
+              : saved
+                ? 'Saved automatically'
+                : 'Changes save automatically'}
+        </span>
+        {undoValue && !busy && !error && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void save(undoValue);
+              setUndoValue(null);
+            }}
+          >
+            Undo
+          </Button>
+        )}
+        {error && (
+          <Button variant="outline" onClick={() => void save(draft)}>
+            Retry save
+          </Button>
+        )}
       </div>
       {error && <p role="alert">{error}</p>}
     </div>

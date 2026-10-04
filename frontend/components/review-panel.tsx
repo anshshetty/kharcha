@@ -37,6 +37,8 @@ export function ReviewPanel({
   notify,
   onError,
   onTransaction,
+  onOverview,
+  onClearFilters,
   sourceId,
   onSource: inspect,
   onBack,
@@ -58,17 +60,24 @@ export function ReviewPanel({
   notify: (s: string) => void;
   onError: (s: string) => void;
   onTransaction: (t: TransactionSelection) => void;
+  onOverview: () => void;
+  onClearFilters: () => void;
 }) {
   const [issues, setIssues] = useState<ReviewIssue[]>([]),
     [sources, setSources] = useState<SourceEmail[]>([]),
     [resolve, setResolve] = useState<ReviewIssue | null>(null),
     [note, setNote] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [loaded, setLoaded] = useState(false);
   const load = () =>
     Promise.all([
-      api<ReviewIssue[]>('/review').then(setIssues),
-      api<SourceEmail[]>('/sources').then(setSources),
-    ]);
+      api<ReviewIssue[]>('/review'),
+      api<SourceEmail[]>('/sources'),
+    ]).then(([nextIssues, nextSources]) => {
+      setIssues(nextIssues);
+      setSources(nextSources);
+      setLoaded(true);
+    });
   useEffect(() => {
     if (active) load().catch((e) => onError(e.message));
   }, [report, onError, active]);
@@ -87,14 +96,16 @@ export function ReviewPanel({
       setBusy(false);
     }
   };
+  const queryTerm = query.trim().toLowerCase();
+  const hasFilters = !!queryTerm || filter !== 'all';
   const visible = issues.filter(
     (i) =>
       (filter === 'all' || i.kind === filter) &&
-      (!query ||
+      (!queryTerm ||
         [i.message, i.subject, i.sender, i.counterparty]
           .join(' ')
           .toLowerCase()
-          .includes(query.toLowerCase())),
+          .includes(queryTerm)),
   );
   const senders = Object.values(
     sources.reduce((out: Record<string, SenderSummary>, s: SourceEmail) => {
@@ -111,8 +122,8 @@ export function ReviewPanel({
       <div className="review-layout">
         <section className="panel">
           <SectionTitle
-            title="Needs a human look"
-            detail="Largest known amounts first within each currency (INR first). Items without an amount still need review; these amounts are not necessarily errors."
+            title="Your review queue"
+            detail="Largest known amounts first within each currency. Open a payment, check its evidence, then record your decision."
           />
           <div className="table-filters" style={{ padding: '0 0 15px' }}>
             <div className="search-input">
@@ -144,7 +155,14 @@ export function ReviewPanel({
                   <CircleAlert size={18} />
                   <div>
                     <h3>{i.message}</h3>
-                    {i.amount_minor != null && <p><strong>{money(i.amount_minor, i.currency || 'INR')}</strong> · {i.counterparty} · {i.date}</p>}
+                    {i.amount_minor != null && (
+                      <p>
+                        <strong>
+                          {money(i.amount_minor, i.currency || 'INR')}
+                        </strong>{' '}
+                        · {i.counterparty} · {i.date}
+                      </p>
+                    )}
                     <p>{i.subject || i.sender || 'Transaction review'}</p>
                   </div>
                 </div>
@@ -154,7 +172,7 @@ export function ReviewPanel({
                       variant="outline"
                       onClick={() => onTransaction({ id: i.transaction_id! })}
                     >
-                      Review transaction
+                      Open payment
                     </Button>
                   )}
                   {i.source_id && (
@@ -165,18 +183,37 @@ export function ReviewPanel({
                       Read source
                     </Button>
                   )}
-                  {!i.derived && <Button variant="ghost" onClick={() => setResolve(i)}>
-                    <Check size={15} />
-                    Mark reviewed
-                  </Button>}
+                  {!i.derived && (
+                    <Button variant="ghost" onClick={() => setResolve(i)}>
+                      <Check size={15} />
+                      Mark reviewed
+                    </Button>
+                  )}
                 </div>
               </article>
             ))
+          ) : !loaded ? (
+            <output className="help-text">Loading your review queue…</output>
           ) : (
             <Blank
-              title="No matching review items"
-              description="New or unfamiliar email formats appear here when they need interpretation."
-            />
+              title={
+                hasFilters
+                  ? 'No matching review items'
+                  : 'No payments need review'
+              }
+              description={
+                hasFilters
+                  ? 'Try another search or clear the filters to see your queue.'
+                  : 'Your current queue is clear. Return to this month’s spending; new items will appear here when they need your attention.'
+              }
+            >
+              <Button
+                variant={hasFilters ? 'outline' : 'default'}
+                onClick={hasFilters ? onClearFilters : onOverview}
+              >
+                {hasFilters ? 'Clear review filters' : 'View monthly spending'}
+              </Button>
+            </Blank>
           )}
           {visible.length > 100 && (
             <p className="help-text">
@@ -187,7 +224,7 @@ export function ReviewPanel({
         </section>
         <div className="settings-stack">
           <section className="panel">
-            <SectionTitle title="Coverage, honestly" />
+            <SectionTitle title="Import coverage" />
             <div className="issue-count">{issues.length}</div>
             <p className="help-text">
               Open review items across your history. This count is not a measure
@@ -244,12 +281,16 @@ export function ReviewPanel({
           </section>
         </div>
       </div>
-      <section
+      <details
         className="panel transaction-panel"
         style={{ marginTop: 22, padding: 24 }}
       >
+        <summary className="inventory-summary">
+          Source email inventory{' '}
+          <span>Inspect retained transaction evidence</span>
+        </summary>
         <SectionTitle
-          title="Source email inventory"
+          title="Retained sources"
           detail="Every candidate is parsed, excluded with a reason, or awaiting review"
         />
         {sources.slice(0, 80).map((s) => (
@@ -277,7 +318,7 @@ export function ReviewPanel({
             Showing the 80 most recent source messages.
           </p>
         )}
-      </section>
+      </details>
       <Dialog open={!!sourceId} onOpenChange={(open) => !open && onBack()}>
         <DialogContent className="modal-wide">
           <Button variant="ghost" onClick={onBack} className="source-return">

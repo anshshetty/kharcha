@@ -7,6 +7,9 @@ export interface TransactionFilters {
   kind: string;
   search: string;
   newOnly: boolean;
+  group?: string;
+  groupIds?: string[];
+  categoryIds?: string[];
 }
 
 export function filterTransactions(
@@ -27,12 +30,20 @@ export function filterTransactions(
     ) {
       return false;
     }
+    if (
+      filters.group &&
+      filters.groupIds &&
+      !filters.groupIds.includes(transaction.id)
+    )
+      return false;
     return (
       (filters.category === 'all' ||
-        transaction.category === filters.category ||
-        transaction.allocations?.some(
-          (allocation) => allocation.category === filters.category,
-        )) &&
+        (filters.categoryIds
+          ? filters.categoryIds.includes(transaction.id)
+          : transaction.category === filters.category ||
+            transaction.allocations?.some(
+              (allocation) => allocation.category === filters.category,
+            ))) &&
       (filters.kind === 'all' || transaction.kind === filters.kind) &&
       (!query ||
         [
@@ -62,4 +73,22 @@ export function spendingByCurrency(rows: Transaction[]): [string, number][] {
     );
   }
   return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Saved months must remain reachable after they leave the rolling chart window. */
+export function transactionHistory(
+  rows: Transaction[],
+  currency: string,
+  recentMonths: string[] = [],
+) {
+  const saved = rows.filter((row) => row.currency === currency);
+  const recordedMonths = [
+    ...new Set(saved.map((row) => row.date.slice(0, 7))),
+  ].sort();
+  return {
+    count: saved.length,
+    firstMonth: recordedMonths[0] || '',
+    latestMonth: recordedMonths.at(-1) || '',
+    months: [...new Set([...recentMonths, ...recordedMonths])].sort().reverse(),
+  };
 }

@@ -54,7 +54,7 @@ export function AIConsent({
         </DialogHeader>
         <ul className="privacy-list">
           <li>
-            Current-month regular expenses: dates, amounts, currency, merchant
+            Selected-month regular expenses: dates, amounts, currency, merchant
             and payee names, categories, transaction types, internal IDs, notes,
             corrections, and review warnings.
           </li>
@@ -75,17 +75,18 @@ export function AIConsent({
         </p>
         <p className="help-text">
           While enabled, the app can send updated data for automatic reviews up
-          to once a day after Gmail sync, plus reviews you refresh manually. It
-          uses your Codex allowance. Turning it off cancels active work and
-          prevents future reviews; it cannot retract data already sent.
-          Restoring a backup requires consent again.
+          to once a day after Gmail sync for the current month, plus reviews you
+          refresh manually for the selected month. It uses your Codex allowance.
+          Turning it off cancels active work and prevents future reviews; it
+          cannot retract data already sent. Restoring a backup requires consent
+          again.
         </p>
         <details>
           <summary>Preview current INR data — generated locally</summary>
           <p className="help-text">
             This is the structured input for an INR review right now. Future
-            reviews use updated data; another currency uses its own records.
-            Previewing sends nothing to OpenAI.
+            reviews use updated data; another month or currency uses its own
+            records. Previewing sends nothing to OpenAI.
           </p>
           {previewError ? (
             <p role="alert">{previewError}</p>

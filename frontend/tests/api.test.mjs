@@ -130,3 +130,45 @@ test('fresh tabs and expired sessions require the launcher without replaying wri
     globalThis.fetch = previousFetch;
   }
 });
+
+test('expired access invalidates the workspace instead of leaving stale sync controls usable', async () => {
+  const previousWindow = globalThis.window,
+    previousFetch = globalThis.fetch;
+  globalThis.window = browser('#access_token=' + 'c'.repeat(43));
+  let authorized = true;
+  let writes = 0;
+  globalThis.fetch = async (url, init) => {
+    if (init.method === 'POST') writes++;
+    if (!authorized) return json({ error: 'unauthorized' }, 401);
+    if (url === '/api/session') return json({ csrf: 'synthetic-csrf' });
+    return json({ job: { state: 'running' } });
+  };
+  try {
+    const { api, isLocalAccessRequired, subscribeLocalAccess } =
+      await import('../lib/api.ts?expired-workspace');
+    const states = [];
+    const unsubscribe = subscribeLocalAccess(() =>
+      states.push(isLocalAccessRequired()),
+    );
+    await api('/status');
+    assert.equal(isLocalAccessRequired(), false);
+    authorized = false;
+    await assert.rejects(api('/status'), /unlock this browser/);
+    assert.equal(isLocalAccessRequired(), true);
+    await assert.rejects(api('/sync', 'POST', {}), /unlock this browser/);
+    assert.equal(writes, 0);
+    assert.deepEqual(states, [true]);
+    authorized = true;
+    window.location.hash = '#access_token=' + 'd'.repeat(43);
+    await api('/status');
+    assert.equal(isLocalAccessRequired(), false);
+    assert.deepEqual(states, [true, false]);
+    unsubscribe();
+    authorized = false;
+    await assert.rejects(api('/status'), /unlock this browser/);
+    assert.deepEqual(states, [true, false]);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
+});

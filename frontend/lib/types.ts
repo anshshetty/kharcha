@@ -49,6 +49,7 @@ export interface Transaction {
   kind: string;
   counterparty: string;
   merchant_display?: string;
+  merchant_recognized?: boolean;
   counterparty_key?: string | null;
   identity_confirmed?: boolean;
   account: string;
@@ -128,6 +129,11 @@ export interface AppStatus {
     processed: number;
     discovered: number;
     added: number;
+    scan?: {
+      months: number;
+      resumed: boolean;
+      policy_update: boolean;
+    } | null;
     error?: string;
   };
   local_export_available: boolean;

@@ -83,7 +83,7 @@ def main():
     built = next((p for p in candidates if p.exists()), None)
     sources = [
         p
-        for directory in ["app", "components", "lib", "hooks"]
+        for directory in ["app", "components", "lib", "hooks", "styles"]
         for p in (ROOT / "frontend" / directory).rglob("*")
         if p.is_file()
     ]

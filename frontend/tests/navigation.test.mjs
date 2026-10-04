@@ -130,7 +130,7 @@ test('refresh retains the exact screen and its available back destination', () =
   nav.navigate({ selected: { id: 'tx-5' } });
   const refreshed = createNavigation(browser);
   assert.equal(refreshed.state.selected.id, 'tx-5');
-  assert.equal(refreshed.backLabel, 'Review & coverage');
+  assert.equal(refreshed.backLabel, 'Review');
   refreshed.back();
   refreshed.restore();
   assert.equal(refreshed.state.reviewSearch, 'Amazon');
@@ -238,4 +238,33 @@ test('remembered scroll survives Back followed by Forward', () => {
   nav.restore();
   browser.history.forward();
   assert.equal(nav.restore(), 1100);
+});
+
+test('overview month selection survives reload, drilldown, and Back', () => {
+  const browser = browserAt('#/overview?month=2026-10');
+  const nav = createNavigation(browser);
+  nav.navigate({ month: '2026-09' });
+  const refreshed = createNavigation(browser);
+  assert.equal(refreshed.state.month, '2026-09');
+  refreshed.navigate({ view: 'transactions', category: 'Shopping' });
+  refreshed.back();
+  refreshed.restore();
+  assert.equal(refreshed.state.view, 'overview');
+  assert.equal(refreshed.state.month, '2026-09');
+  refreshed.back();
+  refreshed.restore();
+  assert.equal(refreshed.state.month, '2026-10');
+});
+
+test('spending group drilldown persists through refresh, details, and Back', () => {
+  const browser = browserAt('#/overview?month=2026-09');
+  const nav = createNavigation(browser);
+  nav.navigate({ view: 'transactions', group: 'fixed' });
+  nav.navigate({ selected: { id: 'rent' } });
+  const refreshed = createNavigation(browser);
+  assert.equal(refreshed.state.group, 'fixed');
+  refreshed.back();
+  refreshed.restore();
+  assert.equal(refreshed.state.group, 'fixed');
+  assert.equal(refreshed.state.selected, null);
 });

@@ -141,6 +141,10 @@ def create_app(store=None, start_scheduler=True):
         response.headers["X-Frame-Options"] = "DENY"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif response.headers.get("content-type", "").startswith("text/html"):
+            # Revalidate the app shell after upgrades instead of letting an
+            # older cached page keep loading an obsolete client bundle.
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.exception_handler(ValueError)
@@ -173,13 +177,23 @@ def create_app(store=None, start_scheduler=True):
                 "SELECT COUNT(*) FROM transactions WHERE merged_into IS NULL"
             ).fetchone()[0]
             changes = store.sync_summary(job["id"] if job else None)
+            backfill = store.get_setting("backfill")
+            scan = None
+            if job and job["state"] == "running" and backfill:
+                scan = {
+                    "months": backfill.get("months", 6),
+                    "resumed": backfill.get("origin_job_id") != job["id"],
+                    "policy_update": bool(
+                        backfill.get("rescan") and store.get_setting("history_id")
+                    ),
+                }
         return {
             "connection": store.get_setting("connection", {"state": "disconnected"}),
             "configured": store.get_setting("oauth_configured", False),
             "ai_advisor_enabled": enabled(store),
             "ai_advisor_consent_version": CONSENT_VERSION,
             "last_sync": store.get_setting("last_sync"),
-            "job": {**dict(job), "added": changes["added"]} if job else None,
+            "job": {**dict(job), "added": changes["added"], "scan": scan} if job else None,
             "new_transaction_count": changes["unseen"],
             "transaction_count": count,
             "local_export_available": (ROOT / "august-2026-transactions.json").exists(),
@@ -314,6 +328,29 @@ def create_app(store=None, start_scheduler=True):
     async def update(id: str, request: Request):
         return store.update(id, await request.json())
 
+    @app.patch("/api/transactions/{id}/edit")
+    async def save_edit(id: str, request: Request):
+        data = await request.json()
+        if not isinstance(data, dict) or set(data) - {
+            "changes",
+            "remember_scope",
+            "edit_id",
+            "expected",
+        }:
+            raise ValueError("Expected a correction with an explicit category matching scope")
+        return store.save_edit(
+            id,
+            data.get("changes", {}),
+            data.get("remember_scope", "none"),
+            data.get("edit_id"),
+            data.get("expected"),
+        )
+
+    @app.post("/api/transactions/{id}/undo-edit")
+    async def undo_edit(id: str, request: Request):
+        data = await request.json()
+        return store.undo_edit(id, data.get("edit_id"))
+
     @app.post("/api/transactions/{id}/merge")
     async def merge(id: str, request: Request):
         body = await request.json()
@@ -434,13 +471,13 @@ def create_app(store=None, start_scheduler=True):
         return {"identity": store.add_alias(data["alias"], data["name"], data.get("identity"))}
 
     @app.get("/api/ai-advisor")
-    def ai_status(currency: str = "INR"):
-        return advisor.status(currency)
+    def ai_status(currency: str = "INR", month: str | None = None):
+        return advisor.status(currency, month)
 
     @app.get("/api/ai-advisor/preview")
-    def ai_preview(currency: str = "INR"):
+    def ai_preview(currency: str = "INR", month: str | None = None):
         # Local-only preview of the same structured input used by the runner.
-        return snapshot(store, currency)
+        return snapshot(store, currency, month)
 
     @app.put("/api/ai-advisor/preferences")
     async def ai_preferences(request: Request):
@@ -472,16 +509,16 @@ def create_app(store=None, start_scheduler=True):
         return {"enabled": body["enabled"]}
 
     @app.get("/api/spending-focus")
-    def spending_focus(currency: str = "INR"):
+    def spending_focus(currency: str = "INR", month: str | None = None):
         from .spending_focus import spending_focus as focus
 
-        return focus(store, currency)
+        return focus(store, currency, month=month)
 
     @app.post("/api/ai-advisor/refresh")
-    def ai_refresh(currency: str = "INR"):
+    def ai_refresh(currency: str = "INR", month: str | None = None):
         if sync.lock.locked():
             raise ValueError("Wait for Gmail sync to finish so analysis uses a consistent snapshot")
-        return advisor.start(force=True, currency=currency)
+        return advisor.start(force=True, currency=currency, month=month)
 
     @app.get("/api/financial-context")
     def financial_context():

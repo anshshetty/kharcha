@@ -147,3 +147,45 @@ def test_evidence_contains_only_other_portion_and_current_ids(store):
     assert [t["id"] for t in f["transactions"]] == [mixed["id"]]
     assert f["transactions"][0]["amount_minor"] == 3000
     assert protected["id"] not in f["categories"][0]["transaction_ids"]
+
+
+@pytest.mark.parametrize(
+    "month,last_day", [("2026-08", "31"), ("2024-02", "29"), ("2025-02", "28")]
+)
+def test_completed_month_includes_last_day_and_isolates_currency(store, month, last_day):
+    end = add(store, date=f"{month}-{last_day}", amount_minor=500)
+    add(store, date="2026-09-01", amount_minor=999)
+    add(store, date=f"{month}-01", amount_minor=800, currency="USD")
+    data = spending_focus(store, month=month, as_of="2026-09-13")
+    assert data["month"] == month
+    assert data["as_of"] == f"{month}-{last_day}"
+    assert data["current"] is False
+    assert data["other_minor"] == 500
+    assert [t["id"] for t in data["transactions"]] == [end["id"]]
+    assert spending_focus(store, "USD", month=month, as_of="2026-09-13")["other_minor"] == 800
+
+
+def test_explicit_current_month_remains_month_to_date(store):
+    add(store, date="2026-09-13", amount_minor=100)
+    add(store, date="2026-09-30", amount_minor=999)
+    data = spending_focus(store, month="2026-09", as_of="2026-09-13")
+    assert data["as_of"] == "2026-09-13"
+    assert data["current"] is True
+    assert data["other_minor"] == 100
+
+
+@pytest.mark.parametrize("month", ["2026-13", "2026-8", "0000-01", "2026-10", "invalid"])
+def test_invalid_and_future_month_rejected(store, month):
+    with pytest.raises(ValueError):
+        spending_focus(store, month=month, as_of="2026-09-13")
+
+
+def test_historical_refund_uses_original_protected_categories(store):
+    store.set_setting("financial_context", {"fixed_categories": ["Rent & home"]})
+    purchase = add(store, date="2026-07-31", category="Rent & home", amount_minor=1000)
+    refund = add(store, date="2026-08-31", kind="refund", direction="credit", amount_minor=100)
+    store.update(refund["id"], {"linked_to": purchase["id"]})
+    data = spending_focus(store, month="2026-08", as_of="2026-09-13")
+    assert data["fixed_minor"] == data["spending_minor"] == -100
+    assert data["other_minor"] == 0
+    assert data["transactions"] == []

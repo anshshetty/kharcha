@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import uuid
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -197,6 +197,11 @@ class Store:
                 from .spending_focus import merchant_name
 
                 value["merchant_display"] = merchant_name(value)
+                from .categorization import merchant_match
+
+                value["merchant_recognized"] = bool(
+                    merchant_match(value.get("counterparty", ""))
+                ) and not str(value.get("counterparty_key") or "").startswith("person:")
                 inference = value.get("category_inference", {})
                 if "category" in overrides or value.get("category_manual"):
                     value.update(
@@ -392,6 +397,20 @@ class Store:
 
     @staticmethod
     def rule_matches(rule, t):
+        if rule["scope"] in ("payee", "person"):
+            if (
+                t["kind"] not in SPENDING
+                or rule["currency"] != t["currency"]
+                or rule["direction"] != t["direction"]
+            ):
+                return False
+            if rule["scope"] == "person":
+                return bool(
+                    t.get("identity_confirmed")
+                    and t.get("counterparty_key")
+                    and rule["counterparty_key"] == t["counterparty_key"]
+                )
+            return t["counterparty"].casefold().strip() == rule["merchant"].casefold().strip()
         if rule["scope"] == "exact":
             return bool(
                 t.get("identity_confirmed")
@@ -475,7 +494,7 @@ class Store:
                 changed += 1
         return changed
 
-    def update(self, id, changes):
+    def update(self, id, changes, *, _db=None):
         if not isinstance(changes, dict):
             raise ValueError("Expected a transaction correction object")
         allowed = {
@@ -505,7 +524,7 @@ class Store:
         if before["merged_into"]:
             raise ValueError("Unmerge before editing this transaction")
         d = self.normalize({**before, **changes})
-        with self.tx() as db:
+        with nullcontext(_db) if _db is not None else self.tx() as db:
             auto_category_changed = False
             default_category = before.get("category_source") == "automatic" or (
                 before.get("category_source") == "default" and before["category"] == "Uncategorized"
@@ -578,6 +597,123 @@ class Store:
             db.execute("INSERT OR IGNORE INTO accounts(name) VALUES(?)", (d["account"],))
             self.audit(db, "correction", id, {k: before.get(k) for k in changes}, changes)
         return self.transaction(id)
+
+    def save_edit(self, id, changes, remember_scope, edit_id, expected=None):
+        """Save a correction and its future rule in one SQLite transaction.
+
+        edit_id makes explicit retries safe if the first response is lost.
+        Undo restores only this correction and stops the new rule; it never
+        rewrites other transactions already imported with that rule.
+        """
+        if not isinstance(edit_id, str) or not re.fullmatch(r"[a-f0-9]{32}", edit_id):
+            raise ValueError("Invalid edit identifier")
+        if remember_scope not in ("none", "payee", "person", "exact"):
+            raise ValueError("Invalid category matching scope")
+        fingerprint = encode(
+            {"id": id, "changes": changes, "scope": remember_scope, "expected": expected}
+        )
+        key = "edit-result:" + edit_id
+        with self.tx() as db:
+            previous = self.get_setting(key)
+            if previous:
+                if previous["fingerprint"] != fingerprint:
+                    raise ValueError("This edit identifier was already used")
+                return previous["result"]
+            before = self.transaction(id)
+            if expected is not None:
+                if not isinstance(expected, dict) or set(expected) != set(changes):
+                    raise ValueError("Invalid expected correction values")
+                if any(encode(before.get(k)) != encode(v) for k, v in expected.items()):
+                    raise ValueError("This payment changed. Reopen it before editing again.")
+            raw_before = db.execute(
+                "SELECT overrides FROM transactions WHERE id=?", (id,)
+            ).fetchone()[0]
+            data_before = db.execute("SELECT data FROM transactions WHERE id=?", (id,)).fetchone()[
+                0
+            ]
+            updated = self.update(id, changes, _db=db)
+            rule = None
+            if remember_scope != "none":
+                if "category" not in changes or updated["kind"] not in SPENDING:
+                    raise ValueError("Remember categories only for spending payments")
+                if updated["counterparty"].strip().casefold() in ("", "unknown recipient"):
+                    raise ValueError("Identify the payee before remembering a category")
+                if remember_scope in ("person", "exact") and not (
+                    updated.get("identity_confirmed") and updated.get("counterparty_key")
+                ):
+                    raise ValueError("Confirm this person's identity or UPI ID first")
+                rule = {
+                    "id": uid(),
+                    "scope": remember_scope,
+                    "counterparty_key": updated.get("counterparty_key"),
+                    "merchant": updated["counterparty"],
+                    "amount_minor": updated["amount_minor"],
+                    "currency": updated["currency"],
+                    "direction": updated["direction"],
+                    "category": updated["category"],
+                    "created_at": now(),
+                }
+                db.execute(
+                    "INSERT INTO rules VALUES(:id,:scope,:counterparty_key,:merchant,:amount_minor,:currency,:direction,:category,:created_at)",
+                    rule,
+                )
+                self.audit(db, "save rule", rule["id"], None, {**rule, "historical_ids": []})
+            raw_after = db.execute(
+                "SELECT overrides FROM transactions WHERE id=?", (id,)
+            ).fetchone()[0]
+            result = {"transaction": updated, "undo_id": edit_id, "rule": rule}
+            record = {
+                "fingerprint": fingerprint,
+                "result": result,
+                "transaction_id": id,
+                "before": raw_before,
+                "after": raw_after,
+                "data_before": data_before,
+                "data_after": db.execute(
+                    "SELECT data FROM transactions WHERE id=?", (id,)
+                ).fetchone()[0],
+                "rule_id": rule["id"] if rule else None,
+            }
+            db.execute("INSERT INTO settings VALUES(?,?)", (key, encode(record)))
+            # Keep a bounded recent undo history, with every token local to the ledger.
+            db.execute(
+                "DELETE FROM settings WHERE key LIKE 'edit-result:%' AND rowid NOT IN (SELECT rowid FROM settings WHERE key LIKE 'edit-result:%' ORDER BY rowid DESC LIMIT 100)"
+            )
+            return result
+
+    def undo_edit(self, id, edit_id):
+        with self.tx() as db:
+            key = "edit-result:" + str(edit_id)
+            record = self.get_setting(key)
+            if not record or record["transaction_id"] != id:
+                raise ValueError("This edit is no longer available to undo")
+            if record.get("undone"):
+                return self.transaction(id)
+            current = self.transaction(id)
+            raw = db.execute("SELECT overrides FROM transactions WHERE id=?", (id,)).fetchone()[0]
+            data_now = db.execute("SELECT data FROM transactions WHERE id=?", (id,)).fetchone()[0]
+            if (
+                current.get("merged_into")
+                or raw != record["after"]
+                or data_now != record["data_after"]
+            ):
+                raise ValueError(
+                    "This payment changed again. Undo would replace a newer correction."
+                )
+            restored = self.normalize(
+                {**json.loads(record["data_before"]), **json.loads(record["before"])}
+            )
+            self.validate_relationships(db, restored, id)
+            db.execute(
+                "UPDATE transactions SET data=?,overrides=? WHERE id=?",
+                (record["data_before"], record["before"], id),
+            )
+            if record["rule_id"]:
+                db.execute("DELETE FROM rules WHERE id=?", (record["rule_id"],))
+            record["undone"] = True
+            db.execute("UPDATE settings SET value=? WHERE key=?", (encode(record), key))
+            self.audit(db, "undo correction", id, record["after"], record["before"])
+            return self.transaction(id)
 
     def validate_relationships(self, db, d, id):
         transactions = self.list_transactions()

@@ -56,6 +56,34 @@ def test_reports_are_available_without_gmail(store):
         assert c.get("/api/status").json()["connection"]["state"] == "disconnected"
 
 
+@pytest.mark.parametrize(
+    "origin,history,expected",
+    [
+        (None, "10", {"months": 6, "resumed": True, "policy_update": True}),
+        ("earlier", "10", {"months": 6, "resumed": True, "policy_update": True}),
+        ("current", "10", {"months": 6, "resumed": False, "policy_update": True}),
+        ("current", None, {"months": 6, "resumed": False, "policy_update": False}),
+    ],
+)
+def test_status_explains_one_time_scan_and_saved_progress(store, origin, history, expected):
+    app = create_app(store, start_scheduler=False)
+    store.set_setting("history_id", history)
+    state = {"origin_job_id": origin, "months": 6, "rescan": True}
+    store.set_setting("backfill", state)
+    with store.tx() as db:
+        db.execute("INSERT INTO jobs(id,state,started_at) VALUES('current','running','2026-09-18')")
+    with TestClient(app) as c:
+        assert c.get("/api/status").json()["job"]["scan"] == expected
+        store.set_setting("backfill", {**state, "rescan": False})
+        assert c.get("/api/status").json()["job"]["scan"]["policy_update"] is False
+        store.set_setting("backfill", None)
+        assert c.get("/api/status").json()["job"]["scan"] is None
+        store.set_setting("backfill", state)
+        with store.tx() as db:
+            db.execute("UPDATE jobs SET state='complete' WHERE id='current'")
+        assert c.get("/api/status").json()["job"]["scan"] is None
+
+
 def test_oauth_state_is_checked(store):
     app = create_app(store, start_scheduler=False)
     with TestClient(app) as c:
@@ -74,7 +102,9 @@ def test_oauth_return_navigation_preserves_api_protection(store, tmp_path, monke
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Dest": "document",
         }
-        assert c.get("/?connected=1", headers=headers).status_code == 200
+        shell = c.get("/?connected=1", headers=headers)
+        assert shell.status_code == 200
+        assert shell.headers["cache-control"] == "no-cache"
         assert c.get("/api/status", headers=headers).status_code == 403
         assert (
             c.get("/?connected=1", headers={**headers, "Sec-Fetch-Mode": "cors"}).status_code == 403
@@ -121,3 +151,34 @@ def test_reparse_preserves_historical_incomplete_evidence(store):
         db.execute("UPDATE sources SET parser_version='incomplete', status='review'")
     assert store.reparse() == 0
     assert store.source("local:abc123")["status"] == "review"
+
+
+def test_month_selection_reaches_spending_and_ai_routes(store, monkeypatch):
+    monkeypatch.setattr("backend.ai_advisor.now", lambda: "2026-09-13T12:00:00+05:30")
+    monkeypatch.setattr("backend.spending_focus.now", lambda: "2026-09-13T12:00:00+05:30")
+    previous = add(store, date="2026-08-31", amount_minor=500)
+    add(store, date="2026-09-01", amount_minor=999)
+    app = create_app(store, start_scheduler=False)
+    calls = []
+    monkeypatch.setattr(
+        app.state.advisor, "start", lambda **kw: calls.append(kw) or {"state": "running"}
+    )
+    with TestClient(app) as client:
+        focus = client.get("/api/spending-focus?month=2026-08").json()
+        assert focus["other_minor"] == 500
+        assert focus["current"] is False
+        preview = client.get("/api/ai-advisor/preview?month=2026-08").json()
+        assert [t["id"] for t in preview["evidence"]] == [previous["id"]]
+        assert client.get("/api/ai-advisor?month=2026-08").json()["state"] == "paused"
+        assert calls == []
+        headers = {"X-CSRF-Token": client.get("/api/session").json()["csrf"]}
+        assert (
+            client.post(
+                "/api/ai-advisor/refresh?month=2026-08&currency=USD", headers=headers, json={}
+            ).status_code
+            == 200
+        )
+        assert calls == [{"force": True, "currency": "USD", "month": "2026-08"}]
+        for route in ("spending-focus", "ai-advisor", "ai-advisor/preview"):
+            assert client.get(f"/api/{route}?month=2026-99").status_code == 400
+            assert client.get(f"/api/{route}?month=2026-10").status_code == 400

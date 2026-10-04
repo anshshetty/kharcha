@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Blank, Picker, SectionTitle } from './common';
 import { TransactionTable } from './transaction-table';
 import { money, monthName } from '@/lib/api';
+import { categoryColor } from '@/lib/design-system';
+import { transactionHistory } from '@/lib/transaction-filters';
 import type {
   Report,
   Transaction,
@@ -23,15 +25,6 @@ import type {
   NamedAmount,
 } from '@/lib/types';
 import type { View } from '@/lib/navigation';
-
-const colors = [
-  'var(--chart-selected)',
-  '#27a98c',
-  '#dba545',
-  '#846bd4',
-  '#e07f6e',
-  '#7894b5',
-];
 
 type Props = {
   report: Report;
@@ -62,6 +55,11 @@ export function LedgerOverview({
   visibilityEnabled,
 }: Props) {
   const total = report.totals;
+  const history = transactionHistory(
+    rows,
+    currency,
+    report.months.map((item) => item.month),
+  );
   const selectedReport = report.months.find((m) => m.month === month);
   const prior = report.previous_totals.spend_minor;
   const change = prior
@@ -82,9 +80,15 @@ export function LedgerOverview({
           label="Ledger month"
           value={month}
           onChange={setMonth}
-          options={report.months.map((m: MonthTotals) => ({
-            value: m.month,
-            label: monthName(m.month) + (m.current ? ' · so far' : ''),
+          options={history.months.map((value) => ({
+            value,
+            label:
+              monthName(value) +
+              (report.months.some(
+                (item) => item.month === value && item.current,
+              )
+                ? ' · so far'
+                : ''),
           }))}
         />
       </div>
@@ -259,41 +263,39 @@ export function LedgerOverview({
           />
           {report.categories.length ? (
             <div className="category-list">
-              {report.categories
-                .slice(0, 6)
-                .map((cat: NamedAmount, i: number) => (
-                  <button
-                    key={cat.name}
-                    className="category-row"
-                    aria-label={cat.name}
-                    onClick={() => drill(cat.name)}
-                  >
-                    <span
-                      className="category-dot"
-                      style={{ background: colors[i % colors.length] }}
-                    />
-                    <span className="category-copy">
-                      <span>
-                        {cat.name}
-                        <b>{money(cat.amount_minor, currency)}</b>
-                      </span>
-                      <span className="category-track">
-                        <i
-                          style={{
-                            width:
-                              Math.min(
-                                100,
-                                (Math.max(0, cat.amount_minor) /
-                                  Math.max(total.gross_minor, 1)) *
-                                  100,
-                              ) + '%',
-                            background: colors[i % colors.length],
-                          }}
-                        />
-                      </span>
+              {report.categories.slice(0, 6).map((cat: NamedAmount) => (
+                <button
+                  key={cat.name}
+                  className="category-row"
+                  aria-label={cat.name}
+                  onClick={() => drill(cat.name)}
+                >
+                  <span
+                    className="category-dot"
+                    style={{ background: categoryColor(cat.name) }}
+                  />
+                  <span className="category-copy">
+                    <span>
+                      {cat.name}
+                      <b>{money(cat.amount_minor, currency)}</b>
                     </span>
-                  </button>
-                ))}
+                    <span className="category-track">
+                      <i
+                        style={{
+                          width:
+                            Math.min(
+                              100,
+                              (Math.max(0, cat.amount_minor) /
+                                Math.max(total.gross_minor, 1)) *
+                                100,
+                            ) + '%',
+                          background: categoryColor(cat.name),
+                        }}
+                      />
+                    </span>
+                  </span>
+                </button>
+              ))}
             </div>
           ) : (
             <Blank

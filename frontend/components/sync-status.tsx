@@ -5,10 +5,14 @@ import { Button } from '@/components/ui/button';
 
 export function SyncStatus({
   status,
+  busy,
+  onResume,
   onSettings,
   onNewTransactions,
 }: {
   status: AppStatus | null;
+  busy: boolean;
+  onResume: () => void;
   onSettings: () => void;
   onNewTransactions: () => void;
 }) {
@@ -21,10 +25,13 @@ export function SyncStatus({
   const connected = status.connection.state === 'connected';
   const unseen = status.new_transaction_count || 0;
   const added = job?.added || 0;
+  const scan = job?.scan;
   const title = reconnect
     ? 'Gmail access expired — reconnect needed'
     : running
-      ? 'Gmail sync in progress'
+      ? scan?.resumed
+        ? 'Resuming Gmail scan'
+        : 'Gmail sync in progress'
       : failed
         ? 'Gmail sync stopped before completion'
         : complete
@@ -39,6 +46,7 @@ export function SyncStatus({
         timeStyle: 'short',
       })
     : '';
+  if (!running && !reconnect && !failed && unseen === 0) return null;
   if (complete && !running && !reconnect && !failed)
     return (
       <section
@@ -91,12 +99,22 @@ export function SyncStatus({
       </output>
       {running && (
         <>
+          {scan && (
+            <p>
+              {scan.policy_update
+                ? `The updated email filter needs a one-time review of the last ${scan.months} months to find previously missed transactions.`
+                : `Checking received emails from the last ${scan.months} months.`}{' '}
+              {scan.resumed && 'Continuing from saved progress. '}
+              Existing transaction evidence is reused. Once this finishes,
+              routine syncs check new Gmail activity.
+            </p>
+          )}
           <p>{job.phase}</p>
           <p>
             <strong>
-              {job.processed.toLocaleString('en-IN')} emails screened
+              {job.processed.toLocaleString('en-IN')} emails checked this run
             </strong>{' '}
-            · {job.discovered.toLocaleString('en-IN')} discovered so far
+            · {job.discovered.toLocaleString('en-IN')} queued this run
             {' · '}
             {added.toLocaleString('en-IN')} transactions added
           </p>
@@ -104,8 +122,8 @@ export function SyncStatus({
             <span />
           </div>
           <small>
-            Still working. More emails may be screened. You can use the app
-            while it syncs; spending totals may change.
+            Still working. More emails may be found. You can use the app while
+            it syncs; spending totals may change.
           </small>
         </>
       )}
@@ -129,17 +147,18 @@ export function SyncStatus({
         </p>
       )}
       <div className="sync-status-actions">
+        {failed && connected && !reconnect && (
+          <Button disabled={busy} onClick={onResume}>
+            {busy ? 'Resuming…' : 'Resume sync'}
+          </Button>
+        )}
         {unseen > 0 && (
           <Button onClick={onNewTransactions}>
             See new transactions ({unseen.toLocaleString('en-IN')})
           </Button>
         )}
         <Button variant="outline" onClick={onSettings}>
-          {reconnect
-            ? 'Reconnect Gmail'
-            : failed
-              ? 'Resume / view details'
-              : 'Sync details'}
+          {reconnect ? 'Reconnect Gmail' : 'Sync details'}
         </Button>
       </div>
     </section>

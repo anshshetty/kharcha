@@ -4,6 +4,7 @@ import {
   filterTransactions,
   newTransactionIds,
   spendingByCurrency,
+  transactionHistory,
 } from '../lib/transaction-filters.ts';
 
 const base = {
@@ -113,4 +114,84 @@ test('spending is totaled by currency, including negative refunds', () => {
     ],
   );
   assert.deepEqual(spendingByCurrency([]), []);
+});
+
+test('saved history includes months older than the rolling report, preserving empty recent months', () => {
+  const saved = [
+    { ...base, date: '2025-09-12' },
+    { ...base, date: '2026-09-26' },
+    { ...base, date: '2026-09-15' },
+    { ...base, date: '2025-01-01', currency: 'USD' },
+  ];
+  const history = transactionHistory(saved, 'INR', [
+    '2026-08',
+    '2026-09',
+    '2026-10',
+  ]);
+  assert.deepEqual(history, {
+    count: 3,
+    firstMonth: '2025-09',
+    latestMonth: '2026-09',
+    months: ['2026-10', '2026-09', '2026-08', '2025-09'],
+  });
+  assert.equal(
+    filterTransactions(saved, { ...filters, month: history.latestMonth })
+      .length,
+    2,
+  );
+  assert.equal(
+    filterTransactions(saved, { ...filters, month: history.firstMonth }).length,
+    1,
+  );
+});
+
+test('history for an empty currency keeps current month choices without inventing saved records', () => {
+  assert.deepEqual(transactionHistory(rows, 'EUR', ['2026-10']), {
+    count: 0,
+    firstMonth: '',
+    latestMonth: '',
+    months: ['2026-10'],
+  });
+});
+
+test('spending groups use accounting evidence IDs including linked refunds', () => {
+  assert.deepEqual(
+    filterTransactions(rows, {
+      ...filters,
+      group: 'regular',
+      groupIds: ['current', 'refund', 'older'],
+    }).map((t) => t.id),
+    ['current', 'refund'],
+  );
+  assert.deepEqual(
+    filterTransactions(rows, { ...filters, group: 'fixed', groupIds: [] }),
+    [],
+  );
+});
+
+test('category evidence includes linked refunds with a different stored category', () => {
+  const linked = [
+    { ...base, id: 'purchase', category: 'Shopping' },
+    {
+      ...base,
+      id: 'refund',
+      category: 'Uncategorized',
+      kind: 'refund',
+      spend_minor: -200,
+    },
+  ];
+  assert.deepEqual(
+    filterTransactions(linked, {
+      ...filters,
+      category: 'Shopping',
+      categoryIds: ['purchase', 'refund'],
+    }).map((t) => t.id),
+    ['purchase', 'refund'],
+  );
+  assert.deepEqual(
+    filterTransactions(linked, { ...filters, category: 'Shopping' }).map(
+      (t) => t.id,
+    ),
+    ['purchase'],
+  );
 });

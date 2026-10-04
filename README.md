@@ -8,10 +8,24 @@ I wanted a tracker that runs on my Mac and keeps my spending data locally, witho
 
 ## What it does
 
-- Shows monthly spending by category and merchant.
+- Shows a monthly overview with spending composition, category and merchant
+  breakdowns, and charts that open the payments behind each amount.
 - Imports transactions from Gmail and bank statements.
 - Lets me review and correct transactions, handle shared expenses, and track refunds.
+  Corrections save automatically, with explicit choices for remembering a payee's
+  category and Undo for the last correction.
 - Supports exports and encrypted backups.
+- Provides light and dark themes, responsive phone layouts, and bottom navigation
+  for Overview, Transactions, Review, and Settings.
+
+Choose a month and currency to keep the overview, supporting transactions and
+optional AI insights focused on the same period. Browsing a month does not start
+an AI review.
+
+![Kharcha desktop overview using fictional demo data](docs/screenshots/redesign-desktop.png)
+
+[View the mobile layout](docs/screenshots/redesign-mobile.png). Both screenshots
+use the isolated synthetic demo, with Gmail and AI offline.
 
 ## Local first
 
@@ -29,7 +43,7 @@ You’ll need macOS, Python 3.11+, and Node.js 22.13+ with npm. The first setup 
 
 1. Download or clone this repository.
 2. Double-click **Start Kharcha.command** and keep its window running.
-3. Open **Connections & rules** to connect Gmail, or import a bank statement.
+3. Open **Settings** to connect Gmail, or import a bank statement.
 
 For Gmail setup, detailed features, and troubleshooting, see the [guide](docs/guide.md).
 

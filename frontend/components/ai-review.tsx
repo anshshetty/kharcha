@@ -1,19 +1,22 @@
 'use client';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import {
   ArrowUpRight,
-  CalendarDays,
-  ChartNoAxesCombined,
   ChevronRight,
-  ReceiptText,
   RefreshCw,
   Repeat2,
-  Shapes,
   Sparkles,
-  Wallet,
 } from 'lucide-react';
 import { api, money, monthName } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import {
+  CategorySymbol,
+  SpendingComposition,
+  MonthlyTrend,
+} from './spending-graphics';
+import type { Report } from '@/lib/types';
+import { categoryColor } from '@/lib/design-system';
 import type { TransactionSelection } from '@/lib/types';
 
 type Insight = {
@@ -48,6 +51,7 @@ type EvidenceTransaction = {
 type EvidenceLookup = Record<string, EvidenceTransaction>;
 type SpendingFocus = {
   month: string;
+  current: boolean;
   as_of: string;
   currency: string;
   spending_minor: number;
@@ -67,9 +71,16 @@ type SpendingFocus = {
   policy: { fixed_categories: string[]; unavoidable_categories: string[] };
 };
 type Props = {
+  month: string;
   currency?: string;
   onTransaction: (t: TransactionSelection) => void;
   onSettings: () => void;
+  report: Report;
+  onMonth: (month: string) => void;
+  onCategory: (category: string) => void;
+  onGroup: (group: string) => void;
+  onReview: () => void;
+  revision: number;
 };
 
 function Evidence({
@@ -157,9 +168,25 @@ function Finding({
 }
 
 export function AIReview(props: Props) {
-  return <ReviewContent key={props.currency || 'INR'} {...props} />;
+  return (
+    <ReviewContent
+      key={`${props.month}:${props.currency || 'INR'}`}
+      {...props}
+    />
+  );
 }
-function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
+function ReviewContent({
+  month,
+  currency = 'INR',
+  onTransaction,
+  onSettings,
+  report,
+  onMonth,
+  onCategory,
+  onGroup,
+  onReview,
+  revision,
+}: Props) {
   const [focus, setFocus] = useState<SpendingFocus | null>(null);
   const [focusError, setFocusError] = useState('');
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -168,7 +195,10 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
 
   useEffect(() => {
     let live = true;
-    const query = new URLSearchParams({ currency });
+    const query = new URLSearchParams({
+      ...(month ? { month } : {}),
+      currency,
+    });
     const loadFocus = () =>
       api<SpendingFocus>(`/spending-focus?${query}`)
         .then((value) => {
@@ -200,7 +230,7 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
       clearInterval(focusTimer);
       clearInterval(analysisTimer);
     };
-  }, [currency]);
+  }, [month, currency, revision]);
 
   const refresh = async () => {
     setBusy(true);
@@ -208,7 +238,7 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
     try {
       setAnalysis(
         await api<Analysis>(
-          `/ai-advisor/refresh?${new URLSearchParams({ currency })}`,
+          `/ai-advisor/refresh?${new URLSearchParams({ ...(month ? { month } : {}), currency })}`,
           'POST',
           {},
         ),
@@ -245,6 +275,7 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
       <>
         <span className="focus-category-title">
           <span>
+            <CategorySymbol name={group.name} />
             {group.name}
             <ChevronRight size={14} aria-hidden="true" />
           </span>
@@ -262,99 +293,111 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
       </>
     );
     return (
-      <details className="focus-category" key={group.name}>
-        <summary aria-label={`View supporting transactions for ${group.name}`}>
-          {contents}
-        </summary>
-        <Evidence
-          ids={group.transaction_ids}
-          onTransaction={onTransaction}
-          transactions={evidenceTransactions}
-          currency={currency}
-        />
-      </details>
+      <button
+        className="focus-category category-drill"
+        key={group.name}
+        style={
+          {
+            '--category-color': categoryColor(group.name),
+          } as React.CSSProperties
+        }
+        onClick={() => onCategory(group.name)}
+        aria-label={`View ${group.name} payments: ${money(group.amount_minor, currency)}`}
+      >
+        {contents}
+      </button>
     );
   };
 
   return (
     <div className="spending-focus">
-      <section className="panel focus-dashboard" aria-labelledby="focus-title">
-        <div className="focus-heading">
-          <div className="focus-title-group">
-            <span className="section-icon">
-              <ChartNoAxesCombined size={21} aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="focus-title">Your spending insights</h2>
-              <p>A closer look at this month.</p>
-            </div>
-          </div>
-          {focus && (
-            <span className="focus-period">
-              <CalendarDays size={14} aria-hidden="true" />
-              {monthName(focus.month)} · so far
-            </span>
-          )}
-        </div>
+      <section className="focus-dashboard" aria-labelledby="focus-title">
         {focusError && (
           <p className="focus-error" role="alert">
             {focusError}
           </p>
         )}
         {!focus && !focusError && (
-          <output className="help-text">Loading this month’s spending…</output>
+          <div className="report-loading" aria-live="polite">
+            <div />
+            <div />
+            <span>Loading recorded spending…</span>
+          </div>
         )}
         {focus && (
           <>
-            <div className="focus-totals">
-              <div className="focus-main-total">
-                <div className="focus-total-label">
-                  <span>Regular spending</span>
-                  <Wallet size={21} aria-hidden="true" />
+            <div className="report-opening">
+              <section className="spending-summary">
+                <h2 id="focus-title">Recorded personal spending</h2>
+                <div className="spending-total">
+                  {report.totals.count
+                    ? money(focus.spending_minor, currency)
+                    : '—'}
                 </div>
-                <strong>{money(focus.other_minor, currency)}</strong>
-                <p className="focus-transaction-count">
-                  <ReceiptText size={14} aria-hidden="true" />
-                  {focus.other_count} recorded{' '}
-                  {focus.other_count === 1 ? 'transaction' : 'transactions'}
+                <p>
+                  {monthName(focus.month)}
+                  {focus.current ? ' so far' : ''} · after refunds
                 </p>
-                {focus.other_refund_minor > 0 && (
-                  <p>
-                    {money(focus.other_gross_minor, currency)} in purchases less{' '}
-                    {money(focus.other_refund_minor, currency)} in refunds
-                  </p>
+                {!report.totals.count && (
+                  <div className="spending-empty">
+                    <Image
+                      src="/illustrations/receipts.png"
+                      width={176}
+                      height={132}
+                      alt=""
+                      unoptimized
+                    />
+                    <div>
+                      <strong>No payments recorded this month</strong>
+                      <p>
+                        Choose an earlier month or import your first
+                        transactions.
+                      </p>
+                      <Button variant="outline" onClick={onSettings}>
+                        Connect or import <ArrowUpRight size={14} />
+                      </Button>
+                    </div>
+                  </div>
                 )}
-              </div>
-              <div className="focus-separated">
-                <span className="focus-separated-label">
-                  Kept separate from these insights
-                </span>
-                <div>
+                <SpendingComposition
+                  regular={focus.other_minor}
+                  fixed={focus.fixed_minor}
+                  unavoidable={focus.unavoidable_minor}
+                  currency={currency}
+                  onGroup={onGroup}
+                />
+                <div className="spending-summary-foot">
                   <span>
-                    Fixed costs
-                    <small>
-                      {focus.policy.fixed_categories.join(' · ') ||
-                        'No categories selected'}
-                    </small>
+                    Recorded payments only; missing costs may affect totals.
                   </span>
-                  <strong>{money(focus.fixed_minor, currency)}</strong>
+                  <button onClick={onSettings}>
+                    Edit groups <ArrowUpRight size={13} />
+                  </button>
                 </div>
-                <div>
-                  <span>
-                    Unavoidable costs
-                    <small>
-                      {focus.policy.unavoidable_categories.join(' · ') ||
-                        'No categories selected'}
-                    </small>
-                  </span>
-                  <strong>{money(focus.unavoidable_minor, currency)}</strong>
-                </div>
-                <p>Amounts recorded so far; unpaid costs may be missing.</p>
-                <Button variant="outline" onClick={onSettings}>
-                  Customize categories
-                </Button>
-              </div>
+              </section>
+              <MonthlyTrend
+                months={report.months}
+                selected={month}
+                currency={currency}
+                onSelect={onMonth}
+              />
             </div>
+            {(focus.coverage.flagged_count > 0 ||
+              report.coverage.open_issues > 0) && (
+              <button className="review-prompt" onClick={onReview}>
+                <span>
+                  <strong>
+                    {report.coverage.open_issues ||
+                      focus.coverage.flagged_count}{' '}
+                    items need review
+                  </strong>
+                  <span>Resolve unclear details behind your numbers.</span>
+                </span>
+                <span>
+                  Open review <ArrowUpRight size={16} />
+                </span>
+              </button>
+            )}
             <div className="focus-breakdowns">
               <section
                 className="focus-category-section"
@@ -362,8 +405,7 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
               >
                 <div className="focus-section-heading">
                   <h3 id="focus-categories-title">
-                    <Shapes size={17} aria-hidden="true" />
-                    Where your regular spending goes
+                    Where regular spending went
                   </h3>
                   <p>
                     Category totals after refunds. Bars show share of purchases.
@@ -390,7 +432,7 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
                   </>
                 ) : (
                   <p className="focus-empty">
-                    No regular expenses recorded this month yet.
+                    No regular expenses recorded for this month.
                   </p>
                 )}
               </section>
@@ -410,14 +452,20 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
                     {focus.repeat_merchants.slice(0, 5).map((merchant) => (
                       <details className="focus-merchant" key={merchant.name}>
                         <summary>
-                          <span>
-                            <strong>{merchant.name}</strong>
-                            <small>
-                              {merchant.count} payments
-                              {merchant.category
-                                ? ` · ${merchant.category}`
-                                : ''}
-                            </small>
+                          <span className="repeat-merchant-identity">
+                            <CategorySymbol
+                              name={merchant.category || 'Other'}
+                              size={20}
+                            />
+                            <span>
+                              <strong>{merchant.name}</strong>
+                              <small>
+                                {merchant.count} payments
+                                {merchant.category
+                                  ? ` · ${merchant.category}`
+                                  : ''}
+                              </small>
+                            </span>
                           </span>
                           <span className="focus-merchant-amount">
                             {money(merchant.amount_minor, currency)}
@@ -446,8 +494,11 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
             </div>
             <div className="focus-ledger-note">
               <span>
-                Recorded spending overall{' '}
-                <strong>{money(focus.spending_minor, currency)}</strong>
+                Regular spending includes {focus.other_count} payments
+                {focus.other_refund_minor > 0
+                  ? ` and ${money(focus.other_refund_minor, currency)} in refunds`
+                  : ''}
+                .
               </span>
               {focus.unclassified_minor !== 0 && (
                 <span>
@@ -480,62 +531,61 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
         )}
       </section>
 
-      <section className="panel focus-ai" aria-labelledby="focus-ai-title">
-        <div className="focus-heading">
-          <div className="focus-title-group">
-            <span className="section-icon">
-              <Sparkles size={20} aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="focus-ai-title">What stands out</h2>
-              <p>AI findings about this month’s regular spending.</p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            disabled={busy || analysis?.state === 'running'}
-            onClick={refresh}
-          >
-            <RefreshCw
-              size={14}
-              className={analysis?.state === 'running' ? 'spin' : ''}
-              aria-hidden="true"
-            />
-            {analysis?.state === 'running' ? 'Analysing…' : 'Refresh insights'}
-          </Button>
-        </div>
-        {analysisError && (
-          <p className="focus-error" role="alert">
-            {analysisError}
-          </p>
-        )}
-        {(analysis?.state !== 'complete' || analysis?.stale) && (
-          <output className="focus-analysis-status">
-            {analysis?.message || 'Checking insights…'}
-          </output>
-        )}
-        {result && (
-          <>
-            {result.patterns?.length > 0 && (
-              <div className="focus-findings">
-                {result.patterns.slice(0, 3).map((item, index) => (
-                  <Finding
-                    key={`pattern-${index}`}
-                    item={item}
-                    onTransaction={onTransaction}
-                    transactions={evidenceTransactions}
-                    currency={currency}
-                  />
-                ))}
+      <details className="focus-ai" open={result ? true : undefined}>
+        <summary className="insights-summary">
+          <span>
+            <Sparkles size={17} /> Spending insights
+          </span>
+          <span>
+            {analysis?.state === 'disabled'
+              ? 'Optional · off'
+              : 'Patterns backed by your payments'}
+            <ChevronRight size={16} />
+          </span>
+        </summary>
+        <section aria-labelledby="focus-ai-title">
+          <div className="focus-heading">
+            <div className="focus-title-group">
+              <span className="section-icon">
+                <Sparkles size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <h2 id="focus-ai-title">What stands out</h2>
+                <p>AI findings about this month’s regular spending.</p>
               </div>
-            )}
-            {result.actions?.length > 0 && (
-              <div className="focus-decisions">
-                <h3>Worth a decision this month</h3>
+            </div>
+            <Button
+              variant="outline"
+              disabled={busy || analysis?.state === 'running'}
+              onClick={refresh}
+            >
+              <RefreshCw
+                size={14}
+                className={analysis?.state === 'running' ? 'spin' : ''}
+                aria-hidden="true"
+              />
+              {analysis?.state === 'running'
+                ? 'Analysing…'
+                : 'Refresh insights'}
+            </Button>
+          </div>
+          {analysisError && (
+            <p className="focus-error" role="alert">
+              {analysisError}
+            </p>
+          )}
+          {(analysis?.state !== 'complete' || analysis?.stale) && (
+            <output className="focus-analysis-status">
+              {analysis?.message || 'Checking insights…'}
+            </output>
+          )}
+          {result && (
+            <>
+              {result.patterns?.length > 0 && (
                 <div className="focus-findings">
-                  {result.actions.slice(0, 2).map((item, index) => (
+                  {result.patterns.slice(0, 3).map((item, index) => (
                     <Finding
-                      key={`action-${index}`}
+                      key={`pattern-${index}`}
                       item={item}
                       onTransaction={onTransaction}
                       transactions={evidenceTransactions}
@@ -543,37 +593,58 @@ function ReviewContent({ currency = 'INR', onTransaction, onSettings }: Props) {
                     />
                   ))}
                 </div>
-              </div>
-            )}
-            {!result.patterns?.length && !result.actions?.length && (
-              <p className="focus-empty">
-                No additional finding supported by this month’s records.
-              </p>
-            )}
-          </>
-        )}
-        <div className="focus-ai-footer">
-          {result && analysis?.generated_at && (
-            <span>
-              Reviewed{' '}
-              {new Date(analysis.generated_at).toLocaleString('en-IN', {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
+              )}
+              {result.actions?.length > 0 && (
+                <div className="focus-decisions">
+                  <h3>
+                    {focus?.current
+                      ? 'Worth a decision this month'
+                      : 'Lessons for future spending'}
+                  </h3>
+                  <div className="focus-findings">
+                    {result.actions.slice(0, 2).map((item, index) => (
+                      <Finding
+                        key={`action-${index}`}
+                        item={item}
+                        onTransaction={onTransaction}
+                        transactions={evidenceTransactions}
+                        currency={currency}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!result.patterns?.length && !result.actions?.length && (
+                <p className="focus-empty">
+                  No additional finding supported by this month’s records.
+                </p>
+              )}
+            </>
           )}
-          <details>
-            <summary>About these insights</summary>
-            <p>
-              Uses your signed-in Codex allowance. Selected ledger details are
-              sent to Codex. Refreshes at most daily after sync. Your saved
-              corrections and exemptions stay in place.
-            </p>
-          </details>
-        </div>
-      </section>
+          <div className="focus-ai-footer">
+            {result && analysis?.generated_at && (
+              <span>
+                Reviewed{' '}
+                {new Date(analysis.generated_at).toLocaleString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            )}
+            <details>
+              <summary>About these insights</summary>
+              <p>
+                Uses your signed-in Codex allowance. Selected ledger details are
+                sent to Codex. The current month refreshes at most daily after
+                sync. Use Refresh insights to review a previous month. Your
+                saved corrections and exemptions stay in place.
+              </p>
+            </details>
+          </div>
+        </section>
+      </details>
     </div>
   );
 }

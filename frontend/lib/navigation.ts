@@ -3,8 +3,8 @@ import type { TransactionSelection } from './types';
 export const viewNames = {
   overview: 'Overview',
   transactions: 'Transactions',
-  review: 'Review & coverage',
-  settings: 'Connections & rules',
+  review: 'Review',
+  settings: 'Settings',
 };
 export type View = keyof typeof viewNames;
 export interface NavigationState {
@@ -13,6 +13,7 @@ export interface NavigationState {
   currency: string;
   search: string;
   category: string;
+  group: string;
   kind: string;
   newOnly: boolean;
   reviewSearch: string;
@@ -26,6 +27,7 @@ export const initialNavigation: NavigationState = {
   currency: 'INR',
   search: '',
   category: 'all',
+  group: '',
   kind: 'all',
   newOnly: false,
   reviewSearch: '',
@@ -47,6 +49,11 @@ export function readNavigation(hash: string): NavigationState {
     currency: /^[A-Z]{3}$/.test(currency) ? currency : 'INR',
     search: params.get('search') || '',
     category: params.get('category') || 'all',
+    group: ['regular', 'fixed', 'unavoidable'].includes(
+      params.get('group') || '',
+    )
+      ? params.get('group')!
+      : '',
     kind: params.get('kind') || 'all',
     newOnly: params.get('new') === '1',
     reviewSearch: params.get('reviewSearch') || '',
@@ -73,6 +80,7 @@ export function navigationHash(state: NavigationState): string {
     'currency',
     'search',
     'category',
+    'group',
     'kind',
     'reviewSearch',
     'reviewKind',

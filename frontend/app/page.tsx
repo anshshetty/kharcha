@@ -1,6 +1,12 @@
 'use client';
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ArrowLeft,
   X,
@@ -32,13 +38,15 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { SyncStatus } from '@/components/sync-status';
-import { FinancialPlan } from '@/components/financial-plan';
 import { AIReview } from '@/components/ai-review';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   api,
+  isLocalAccessRequired,
+  subscribeLocalAccess,
   downloadTransactions,
   money,
   monthName,
@@ -57,6 +65,7 @@ import {
   filterTransactions,
   newTransactionIds,
   spendingByCurrency,
+  transactionHistory,
 } from '@/lib/transaction-filters';
 
 import type {
@@ -64,19 +73,50 @@ import type {
   Report,
   Transaction,
   TransactionSelection,
-  MonthTotals,
 } from '@/lib/types';
+type FocusFilters = {
+  month: string;
+  currency: string;
+  group_ids: Record<string, string[]>;
+  group_totals: Record<string, number>;
+  categories: { name: string; transaction_ids: string[] }[];
+  fixed_categories: { name: string; transaction_ids: string[] }[];
+  unavoidable_categories: { name: string; transaction_ids: string[] }[];
+};
 const navigation = [
   { id: 'overview', name: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', name: 'Transactions', icon: ArrowLeftRight },
-  { id: 'review', name: 'Review & coverage', icon: ScanLine },
-  { id: 'settings', name: 'Connections & rules', icon: Settings2 },
+  { id: 'review', name: 'Review', icon: ScanLine },
+  { id: 'settings', name: 'Settings', icon: Settings2 },
 ] as const;
 
 export default function Home() {
+  const accessRequired = useSyncExternalStore(
+    subscribeLocalAccess,
+    isLocalAccessRequired,
+    () => false,
+  );
+  if (accessRequired)
+    return (
+      <main className="main-content" id="main-content">
+        <section className="sync-status sync-attention" role="alert">
+          <h1>This Kharcha tab needs to be unlocked</h1>
+          <p>
+            Restarting Kharcha expires older browser sessions. This tab cannot
+            show current sync progress or resume syncing.
+          </p>
+          <p>
+            Use the new tab opened by Kharcha, or double-click{' '}
+            <strong>Start Kharcha.command</strong> and use the tab it opens.
+            Refreshing this older tab alone will not unlock it.
+          </p>
+          <p>Your saved ledger and sync progress remain on this Mac.</p>
+        </section>
+      </main>
+    );
   return (
     <SidebarProvider
-      style={{ '--sidebar-width': '244px' } as React.CSSProperties}
+      style={{ '--sidebar-width': '224px' } as React.CSSProperties}
     >
       <Workspace />
     </SidebarProvider>
@@ -90,6 +130,7 @@ function Workspace() {
     currency,
     search,
     category,
+    group,
     kind,
     newOnly,
     selected,
@@ -133,13 +174,16 @@ function Workspace() {
     opener.current = document.activeElement as HTMLElement;
     navigate({ selected: value, sourceId: '' });
   };
-  const hasFilters = category !== 'all' || kind !== 'all' || !!search;
+  const hasFilters =
+    category !== 'all' || kind !== 'all' || !!search || !!group;
   const clearFilters = () =>
-    navigate({ category: 'all', kind: 'all', search: '' });
+    navigate({ category: 'all', kind: 'all', search: '', group: '' });
   const [status, setStatus] = useState<AppStatus | null>(null),
     [report, setReport] = useState<Report | null>(null),
     [rows, setRows] = useState<Transaction[]>([]),
     [categories, setCategories] = useState<string[]>([]);
+  const [focusFilters, setFocusFilters] = useState<FocusFilters | null>(null);
+  const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
@@ -163,7 +207,7 @@ function Workspace() {
     if (!ready) return;
     const version = ++requestVersion.current;
     try {
-      const [s, r, t, c] = await Promise.all([
+      const [s, r, t, c, f] = await Promise.all([
         api<AppStatus>('/status'),
         api<Report>(
           '/report?' +
@@ -171,12 +215,18 @@ function Workspace() {
         ),
         api<Transaction[]>('/transactions'),
         api<string[]>('/categories'),
+        month
+          ? api<FocusFilters>(
+              `/spending-focus?${new URLSearchParams({ month, currency })}`,
+            ).catch(() => null)
+          : Promise.resolve(null),
       ]);
       if (version !== requestVersion.current) return;
       setStatus(s);
       setReport(r);
       setRows(t);
       setCategories(c);
+      setFocusFilters(f);
       if (!month && r.month) navigate({ month: r.month }, true);
     } catch (e) {
       if (version === requestVersion.current) setError((e as Error).message);
@@ -209,11 +259,13 @@ function Workspace() {
   };
   const notify = (value: string) => {
     setMessage(value);
+    setRevision((r) => r + 1);
     void refresh();
   };
   const drill = (cat = 'all', type = 'all', q = '') => {
     navigate({
       view: 'transactions',
+      group: '',
       category: cat,
       kind: type,
       newOnly: false,
@@ -222,11 +274,23 @@ function Workspace() {
       sourceId: '',
     });
   };
+  const showGroup = (value: string) =>
+    navigate({
+      view: 'transactions',
+      group: value,
+      category: 'all',
+      kind: 'all',
+      search: '',
+      newOnly: false,
+      selected: null,
+      sourceId: '',
+    });
   const showNewTransactions = () => {
     setOpenMobile(false);
     navigate({
       view: 'transactions',
       newOnly: true,
+      group: '',
       category: 'all',
       kind: 'all',
       search: '',
@@ -234,6 +298,17 @@ function Workspace() {
       sourceId: '',
     });
   };
+  const currentFocus =
+    focusFilters?.month === month && focusFilters?.currency === currency
+      ? focusFilters
+      : null;
+  const categoryEvidence = currentFocus
+    ? [
+        ...currentFocus.categories,
+        ...currentFocus.fixed_categories,
+        ...currentFocus.unavoidable_categories,
+      ].filter((g) => g.name === category)
+    : [];
   const filtered = filterTransactions(
     rows,
     {
@@ -243,6 +318,12 @@ function Workspace() {
       kind: view === 'overview' ? 'all' : kind,
       search: view === 'overview' ? '' : search,
       newOnly: viewingNew,
+      group: view === 'transactions' ? group : '',
+      categoryIds:
+        !viewingNew && categoryEvidence.length
+          ? [...new Set(categoryEvidence.flatMap((g) => g.transaction_ids))]
+          : undefined,
+      groupIds: currentFocus?.group_ids[group] || (group ? [] : undefined),
     },
     newVisit.ids,
   );
@@ -257,6 +338,26 @@ function Workspace() {
     },
     [refresh],
   );
+  const history = transactionHistory(
+    rows,
+    currency,
+    report?.months.map((item) => item.month),
+  );
+  const showHistory = () => {
+    setOpenMobile(false);
+    navigate({
+      view: 'transactions',
+      month: history.latestMonth || month,
+      group: '',
+      currency,
+      category: 'all',
+      kind: 'all',
+      search: '',
+      newOnly: false,
+      selected: null,
+      sourceId: '',
+    });
+  };
   const running = status?.job?.state === 'running';
   const connected = status?.connection?.state === 'connected';
   return (
@@ -290,7 +391,6 @@ function Workspace() {
           </div>
         </SidebarHeader>
         <SidebarContent>
-          <div className="nav-label">YOUR MONEY</div>
           <SidebarMenu>
             {navigation.map((item) => (
               <SidebarMenuItem key={item.id}>
@@ -320,13 +420,10 @@ function Workspace() {
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
-          <div className="sidebar-note">
-            <ShieldCheck size={21} />
-            <h3>At home on your Mac.</h3>
-            <p>Your ledger is stored on this Mac. Gmail access is read-only.</p>
+          <div className="sidebar-local">
+            <ShieldCheck size={16} />
             <span>
-              <i />
-              LOCAL STORAGE
+              Local on your Mac<small>Your ledger stays with you.</small>
             </span>
           </div>
         </SidebarContent>
@@ -371,6 +468,7 @@ function Workspace() {
             </span>
           </div>
           <div>
+            <ThemeToggle />
             <span className="last-sync">
               {running
                 ? status?.job?.phase
@@ -406,11 +504,6 @@ function Workspace() {
           </div>
         </header>
         <main id="main-content" className="main-content">
-          <SyncStatus
-            status={status}
-            onSettings={() => setView('settings')}
-            onNewTransactions={showNewTransactions}
-          />
           {(backLabel || view !== 'overview') && (
             <div className="return-navigation">
               <Button variant="ghost" onClick={back}>
@@ -420,27 +513,9 @@ function Workspace() {
           )}
           <div className="page-heading" key={view}>
             <div>
-              <div className="eyebrow">
-                {view === 'overview'
-                  ? 'YOUR SPENDING THIS MONTH'
-                  : view === 'transactions'
-                    ? 'FOLLOW THE DETAILS'
-                    : view === 'review'
-                      ? 'CONFIDENCE IN YOUR NUMBERS'
-                      : 'YOUR LOCAL WORKSPACE'}
-              </div>
               <h1 ref={heading} tabIndex={-1}>
                 {viewNames[view]}
               </h1>
-              <p>
-                {view === 'overview'
-                  ? 'Understand your spending, with categories and priorities you choose.'
-                  : view === 'transactions'
-                    ? 'Every payment, with its story and supporting evidence.'
-                    : view === 'review'
-                      ? 'Resolve uncertain details and understand what your emails cover.'
-                      : 'Connect your email and make the app work the way you do.'}
-              </p>
             </div>
             <div className="heading-actions">
               {['overview', 'transactions'].includes(view) &&
@@ -453,18 +528,21 @@ function Workspace() {
                       onChange={setCurrency}
                       options={report.currencies}
                     />
-                    {view === 'transactions' && (
-                      <Picker
-                        label="Month"
-                        value={month}
-                        onChange={setMonth}
-                        options={report.months.map((m: MonthTotals) => ({
-                          value: m.month,
-                          label:
-                            monthName(m.month) + (m.current ? ' · so far' : ''),
-                        }))}
-                      />
-                    )}
+                    <Picker
+                      label="Month"
+                      value={month}
+                      onChange={setMonth}
+                      options={history.months.map((value) => ({
+                        value,
+                        label:
+                          monthName(value) +
+                          (report.months.some(
+                            (item) => item.month === value && item.current,
+                          )
+                            ? ' · so far'
+                            : ''),
+                      }))}
+                    />
                   </>
                 )}
               {view === 'transactions' && (
@@ -475,6 +553,15 @@ function Workspace() {
               )}
             </div>
           </div>
+          <SyncStatus
+            status={status}
+            busy={busy}
+            onResume={() =>
+              void action(() => api('/sync', 'POST', {}), 'Sync resumed')
+            }
+            onSettings={() => setView('settings')}
+            onNewTransactions={showNewTransactions}
+          />
           {error && (
             <div className="notice error" role="alert">
               <CircleAlert size={19} />
@@ -509,22 +596,28 @@ function Workspace() {
               ))}
             </div>
           )}
-          {view === 'overview' && (
+          {view === 'overview' && month && report && (
             <AIReview
+              month={month}
               currency={currency}
               onTransaction={setSelected}
               onSettings={() => setView('settings')}
+              report={report}
+              onMonth={setMonth}
+              onCategory={(cat) => drill(cat)}
+              onGroup={showGroup}
+              onReview={() => setView('review')}
+              revision={revision}
             />
           )}
-          {view === 'settings' && month && (
-            <details className="panel">
-              <summary>Optional corrections to your financial context</summary>
-              <FinancialPlan
-                month={month}
-                currency={currency}
-                onTransaction={setSelected}
-              />
-            </details>
+          {view === 'overview' && history.count > 0 && (
+            <button className="saved-history-link" onClick={showHistory}>
+              {history.count.toLocaleString('en-IN')} saved transactions ·{' '}
+              {monthName(history.firstMonth)} – {monthName(history.latestMonth)}{' '}
+              <span>
+                Browse history <ChevronRight size={14} />
+              </span>
+            </button>
           )}
           {view === 'overview' && report && (
             <LedgerOverview
@@ -568,8 +661,8 @@ function Workspace() {
                   {newOnly
                     ? 'Showing new Gmail transactions across all months and currencies. '
                     : ''}
-                  New badges clear automatically after a transaction appears on
-                  screen.
+                  Viewing a new payment clears its New badge; evidence review is
+                  separate.
                 </p>
               </div>
               <div className="table-filters">
@@ -615,6 +708,16 @@ function Workspace() {
                   aria-label="Active transaction filters"
                 >
                   <span>Filtered by</span>
+                  {group && (
+                    <button
+                      onClick={() => navigate({ group: '' })}
+                      aria-label="Remove spending group filter"
+                    >
+                      {group[0].toUpperCase() + group.slice(1)} spending ·{' '}
+                      {money(focusFilters?.group_totals[group] || 0, currency)}
+                      <X size={14} />
+                    </button>
+                  )}
                   {category !== 'all' && (
                     <button
                       onClick={() => setCategory('all')}
@@ -667,13 +770,17 @@ function Workspace() {
                         {newOnly ? ` ${code}` : ''}
                       </span>
                     ))}{' '}
-                    personal spending
+                    {group
+                      ? 'personal spending in these payments'
+                      : 'personal spending'}
                   </b>
                 )}
               </div>
               <TransactionTable
                 rows={filtered}
                 onSelect={setSelected}
+                categories={categories}
+                onUpdated={notify}
                 newOnly={newOnly}
                 onVisible={markVisibleAsSeen}
                 visibilityEnabled={!selected}
@@ -692,6 +799,9 @@ function Workspace() {
               <SettingsPanel
                 active={view === 'settings'}
                 status={status}
+                month={month}
+                currency={currency}
+                onTransaction={setSelected}
                 categories={categories}
                 notify={notify}
                 onError={setError}
@@ -703,6 +813,10 @@ function Workspace() {
             <div hidden={view !== 'review'}>
               <ReviewPanel
                 active={view === 'review'}
+                onOverview={() => setView('overview')}
+                onClearFilters={() =>
+                  navigate({ reviewSearch: '', reviewKind: 'all' })
+                }
                 report={report}
                 notify={notify}
                 onError={setError}

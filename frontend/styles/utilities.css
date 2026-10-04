@@ -1,0 +1,161 @@
+/* Utilities — use semantic tokens from tokens.css. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes sync-slide {
+  to {
+    transform: translateX(185%);
+  }
+} /* Shared finish: type, surfaces, and interaction feedback. */
+::selection {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+h1,
+h2,
+h3,
+h4,
+.brand {
+  text-wrap: balance;
+}
+.big-money,
+.stat-money,
+.detail-amount,
+.plan-totals strong {
+  font-variant-numeric: tabular-nums;
+}
+.page-heading p,
+.help-text,
+.focus-category-title,
+.focus-merchant > summary strong,
+.focus-merchant-amount,
+.focus-finding > p,
+.focus-empty,
+.focus-analysis-status,
+.search-input input {
+  font-size: var(--text-sm);
+}
+.nav-item,
+.connection-footer,
+[data-slot='button'],
+.picker,
+input,
+textarea,
+select,
+.text-action,
+.export-link,
+.mobile-navigation button,
+.full-ledger-details > summary,
+.transaction-row,
+.category-row,
+.focus-category > summary,
+.focus-merchant > summary {
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-fast) var(--ease-out);
+}
+[data-slot='button']:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.nav-item:hover,
+.connection-footer:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-heading);
+}
+.nav-item[data-active='true']:hover {
+  background: var(--sidebar-active);
+}
+.text-action:hover,
+.export-link:hover {
+  color: var(--primary);
+}
+.transaction-row:hover,
+.transaction-row:focus-within {
+  background: var(--accent);
+}
+.transaction-row > td:last-child svg,
+.text-action svg,
+.focus-category-title svg,
+.focus-merchant-amount svg,
+.full-ledger-details > summary > svg {
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+.transaction-row:hover > td:last-child svg,
+.text-action:hover svg {
+  transform: translateX(3px);
+}
+.notice button:hover {
+  background: var(--secondary);
+}
+.merchant-cell .transaction-mobile-meta,
+.transaction-mobile-meta {
+  display: none;
+}
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  padding: 12px 18px;
+  border-radius: var(--radius-control);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  transform: translateY(-160%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+} /* Entrance motion runs on mount, not on background data refreshes. */
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes bar-reveal {
+  from {
+    transform: scaleY(0.04);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes track-reveal {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.connection-footer > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.transaction-view-buttons {
+  background: var(--secondary);
+  padding: 4px;
+  border-radius: var(--radius-control);
+}
+.transaction-view-buttons [data-slot='button'] {
+  border: 0;
+  box-shadow: none;
+}
+.transaction-view-buttons [aria-pressed='true'] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--surface-shadow);
+}
+
+.transaction-view-buttons [aria-pressed='false'] {
+  background: transparent;
+  color: var(--muted-foreground);
+}
