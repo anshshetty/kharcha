@@ -9,3 +9,5 @@ python-multipart>=0.0.18
 pytest>=8,<10
 
 pdfplumber>=0.11,<1
+
+reportlab>=4.4.10,<5

@@ -56,6 +56,7 @@ import {
 import { Picker } from '@/components/common';
 import { TransactionTable } from '@/components/transaction-table';
 import { LedgerOverview } from '@/components/ledger-overview';
+import { PdfExport } from '@/components/pdf-export';
 import { SettingsPanel } from '@/components/settings-panel';
 import { PhoneAccess } from '@/components/phone-access';
 import { ReviewPanel } from '@/components/review-panel';
@@ -557,6 +558,23 @@ function Workspace() {
                       }))}
                     />
                   </>
+                )}
+              {['overview', 'transactions'].includes(view) &&
+                report &&
+                month && (
+                  <PdfExport
+                    month={month}
+                    currency={currency}
+                    rows={rows}
+                    filters={{
+                      category: view === 'transactions' ? category : 'all',
+                      kind: view === 'transactions' ? kind : 'all',
+                      search: view === 'transactions' ? search : '',
+                      group: view === 'transactions' ? group : '',
+                      new_only: viewingNew,
+                      visit_ids: viewingNew ? [...newVisit.ids] : [],
+                    }}
+                  />
                 )}
               {view === 'transactions' && (
                 <Button onClick={() => setSelected({ new: true })}>

@@ -10,3 +10,33 @@
 @import '../styles/utilities.css';
 @import '../styles/responsive.css';
 @import '../styles/mobile-access.css';
+
+.pdf-export-dialog {
+  width: min(540px, calc(100vw - 2rem));
+  max-width: 540px;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.pdf-date-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.pdf-date-range label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.pdf-filter-scope {
+  overflow-wrap: anywhere;
+}
+.pdf-transaction-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+@media (max-width: 380px) {
+  .pdf-date-range {
+    grid-template-columns: 1fr;
+  }
+}

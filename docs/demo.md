@@ -79,3 +79,16 @@ tab. Let the launch token disappear from the URL before capturing. Keep browser
 profiles, other tabs, desktop notifications, terminals, and URL files out of the
 image. Use this demo for issues and pull requests as well; never attach actual
 bank exports, statements, emails or local browser traces.
+
+## Create a fictional PDF sample
+
+The demo's Export PDF control works without external services. To reproduce a
+marked sample directly, without opening a browser or touching a personal ledger:
+
+```sh
+.venv/bin/python scripts/demo_pdf.py --output /tmp/kharcha-demo-summary.pdf
+```
+
+Add `--include-transactions --start 2026-03-01` for a long report. The command uses
+the same renderer and an isolated memory-only demo vault, marks the PDF as
+synthetic, and refuses to overwrite an existing output.
