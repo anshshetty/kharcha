@@ -1,15 +1,26 @@
 """Synthetic PDF reports reconcile to the ledger and preserve local access."""
 
 from io import BytesIO
+from pathlib import Path
+import re
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pdfplumber
 import pytest
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.colors import HexColor
 
 from backend.app import create_app
-from backend.pdf_report import build_pdf, parse_options, report_data, select_rows
+from backend.pdf_report import (
+    build_pdf,
+    category_color,
+    design_tokens,
+    month_totals,
+    parse_options,
+    report_data,
+    select_rows,
+)
 from .client import LocalClient
 from .test_accounting import add
 from .test_mobile_access import ORIGIN, pair, phone_client
@@ -281,6 +292,203 @@ def test_untrusted_long_and_unicode_labels_are_readable_without_markup():
     assert "Café & <demo>" in text
     assert "END-SENTINEL" in text
     assert "[U+1F600]" in text
+
+
+def test_large_amounts_and_long_category_names_fit_without_losing_values():
+    maximum = 9_007_199_254_740_991
+    category = "Synthetic category " * 105 + " CATEGORY-END"
+    rows = [demo_row("largest", amount_minor=maximum, spend_minor=maximum, category=category)]
+    content = build_pdf(demo_store(rows), options(include_transactions=True))
+    with pdfplumber.open(BytesIO(content)) as document:
+        text = " ".join(" ".join((page.extract_text() or "").split()) for page in document.pages)
+        assert "90,071,992,547,409.91" in text
+        assert "CATEGORY-END" in text
+        for page in document.pages:
+            assert all(0 <= char["x0"] <= char["x1"] <= page.width for char in page.chars)
+            assert all(0 <= char["top"] <= char["bottom"] <= page.height for char in page.chars)
+
+
+@pytest.mark.parametrize("currency", ["INR", "USD"])
+@pytest.mark.parametrize("signed", [False, True])
+def test_six_extreme_months_use_readable_labels_and_preserve_exact_month_values(currency, signed):
+    maximum = 9_007_199_254_740_991
+    rows = []
+    for month in range(1, 7):
+        value = maximum - month
+        refund = signed and month > 3
+        rows.append(
+            demo_row(
+                str(month),
+                date=f"2026-{month:02d}-01",
+                currency=currency,
+                amount_minor=value,
+                spend_minor=-value if refund else value,
+                kind="refund" if refund else "purchase",
+                direction="credit" if refund else "debit",
+            )
+        )
+    content = build_pdf(
+        demo_store(rows), options(start="2026-01-01", end="2026-06-30", currency=currency)
+    )
+    with pdfplumber.open(BytesIO(content)) as document:
+        text = "\n".join(page.extract_text() or "" for page in document.pages)
+        assert "K/M/B/T abbreviations. Exact figures are shown below." in text
+        assert "Exact net spending" in text
+        for label in ("Jan 26", "Feb 26", "Mar 26", "Apr 26", "May 26", "Jun 26"):
+            assert label in text
+        for row in rows:
+            assert row["date"][:7] in text
+            value = row["spend_minor"]
+            exact = (
+                f"{currency} {'-' if value < 0 else ''}{abs(value) // 100:,}.{abs(value) % 100:02d}"
+            )
+            assert exact in text
+        for page in document.pages:
+            # The previous six-month chart shrank maximum-value labels to 2.93pt.
+            assert min(char["size"] for char in page.chars) >= 6
+            assert all(0 <= char["x0"] <= char["x1"] <= page.width for char in page.chars)
+            assert all(0 <= char["top"] <= char["bottom"] <= page.height for char in page.chars)
+
+
+def test_report_palette_and_category_colors_match_current_app_source():
+    source = (Path(__file__).resolve().parents[1] / "frontend/styles/tokens.css").read_text()
+    root = source.split(":root {", 1)[1].split(".dark {", 1)[0]
+    tokens = design_tokens()
+    for name in (
+        "background",
+        "foreground",
+        "primary",
+        "border",
+        "secondary",
+        "muted-foreground",
+        "graphic-regular",
+        "graphic-fixed",
+        "graphic-unavoidable",
+        *(f"chart-{i}" for i in range(1, 7)),
+    ):
+        match = re.search(rf"--{name}:\s*(#[0-9a-fA-F]{{6}});", root)
+        assert match is not None and tokens[name] == match.group(1)
+    # These indices were checked against the actual frontend categoryColor()
+    # in Node, including an astral codepoint to detect UTF-16 hash drift.
+    for name, index in (
+        ("Food & dining", 4),
+        ("Groceries", 6),
+        ("Rent & home", 5),
+        ("Shopping", 3),
+        ("旅費😀", 3),
+    ):
+        assert category_color(name) == HexColor(tokens[f"chart-{index}"])
+
+
+def test_monthly_chart_totals_reconcile_filtered_multi_year_currency_scopes():
+    rows = [
+        demo_row("inr-dec", date="2024-12-31", counterparty="Chart selection", is_new=True),
+        demo_row(
+            "inr-jan",
+            date="2025-01-01",
+            counterparty="Chart selection",
+            is_new=True,
+            amount_minor=50,
+            spend_minor=50,
+        ),
+        demo_row(
+            "inr-refund",
+            date="2025-01-02",
+            counterparty="Chart selection",
+            is_new=True,
+            kind="refund",
+            direction="credit",
+            amount_minor=20,
+            spend_minor=-20,
+        ),
+        demo_row(
+            "usd-dec",
+            date="2024-12-15",
+            counterparty="Chart selection",
+            is_new=True,
+            currency="USD",
+            amount_minor=800,
+            spend_minor=800,
+        ),
+        demo_row(
+            "usd-movement",
+            date="2025-02-01",
+            counterparty="Chart selection",
+            is_new=True,
+            currency="USD",
+            kind="own_transfer",
+            spend_minor=0,
+        ),
+        demo_row("wrong-search", date="2025-01-01", is_new=True, spend_minor=999),
+        demo_row("outside-dates", date="2026-01-01", counterparty="Chart selection", is_new=True),
+        demo_row("already-seen", date="2025-01-01", counterparty="Chart selection"),
+    ]
+    selected = options(
+        start="2024-12-01",
+        end="2025-02-28",
+        new_only=True,
+        currency="EUR",
+        search="Chart selection",
+    )
+    data = report_data(demo_store(rows), selected)
+    assert set(data) == {"INR", "USD"}
+    assert month_totals(data["INR"]) == [("2024-12", 100), ("2025-01", 30)]
+    assert month_totals(data["USD"]) == [("2024-12", 800), ("2025-02", 0)]
+    for item in data.values():
+        assert sum(value for _, value in month_totals(item)) == item["total"]
+    text = pdf_text(build_pdf(demo_store(rows), selected))
+    assert "Same filters and selected dates" in text
+
+
+def test_monthly_chart_retains_all_thirteen_months_across_panel_boundaries():
+    months = [f"2024-{i:02d}" for i in range(1, 13)] + ["2025-01"]
+    rows = [
+        demo_row(
+            f"month-{month}",
+            date=month + "-15",
+            amount_minor=(i + 1) * 100,
+            spend_minor=(i + 1) * 100,
+        )
+        for i, month in enumerate(months)
+    ]
+    content = build_pdf(demo_store(rows), options(start="2024-01-01", end="2025-01-31"))
+    text = pdf_text(content)
+    for label in (
+        "Jan 24",
+        "Feb 24",
+        "Mar 24",
+        "Apr 24",
+        "May 24",
+        "Jun 24",
+        "Jul 24",
+        "Aug 24",
+        "Sep 24",
+        "Oct 24",
+        "Nov 24",
+        "Dec 24",
+        "Jan 25",
+    ):
+        assert label in text
+    assert text.count("Same filters and selected dates") == 3
+    assert text.count("Recorded personal spending") == 1
+    assert "INR 91.00" in text
+    with pdfplumber.open(BytesIO(content)) as document:
+        for page in document.pages:
+            assert all(0 <= char["x0"] <= char["x1"] <= page.width for char in page.chars)
+            assert all(0 <= char["top"] <= char["bottom"] <= page.height for char in page.chars)
+
+
+def test_composition_ribbon_preserves_negative_group_note_and_signed_legend(store):
+    store.set_setting("financial_context", {"fixed_categories": ["Rent & home"]})
+    add(store, amount_minor=200, category="Shopping")
+    add(store, amount_minor=50, category="Rent & home", kind="refund", direction="credit")
+    item = report_data(store, options())["INR"]
+    assert item["groups"] == {"other": 200, "fixed": -50}
+    assert item["total"] == 150
+    text = pdf_text(build_pdf(store, options()))
+    assert "Positive ribbon; negative groups are net refunds." in text
+    assert "-₹0.50" in text and "₹2" in text
+    assert "Tracks show refunds left of zero and spending right of zero." in text
 
 
 def test_desktop_pdf_requires_auth_csrf_and_same_origin_and_is_not_cached(store):

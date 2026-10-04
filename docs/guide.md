@@ -289,7 +289,10 @@ not verified bank balances.
 Choose **Export PDF** on Overview or Transactions, set an inclusive date range,
 and choose whether to include the transaction list. **Download PDF** creates a
 paginated A4 report on the Mac and downloads it to the current browser, including
-a paired phone. No external PDF service or automatic sharing is used. On a phone,
+a paired phone. The PDF uses Kharcha's light-theme colors, Manrope typography,
+logo, spending ribbon and chart styling, adapted to A4. Its monthly chart uses the same dates
+and filters as the report; long ranges retain every recorded month. No external
+PDF service or automatic sharing is used. On a phone,
 use the browser's download/save controls if it previews the file.
 
 Overview exports the selected currency with no transaction filters. Transactions

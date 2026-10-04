@@ -14,7 +14,7 @@ I wanted a tracker that runs on my Mac and keeps my spending data locally, witho
 - Lets me review and correct transactions, handle shared expenses, and track refunds.
   Corrections save automatically, with explicit choices for remembering a payee's
   category and Undo for the last correction.
-- Supports exports and encrypted backups.
+- Exports spending PDFs and CSV files, and supports encrypted backups.
 - Provides light and dark themes, responsive phone layouts, and bottom navigation
   for Overview, Transactions, Review, and Settings.
 
@@ -69,6 +69,29 @@ Mac-only. No Internet hosting or router port forwarding is required.
 For a desktop-only launch, use `python3 scripts/launch.py --no-mobile` or set
 `MONTHLYCOST_MOBILE=0`. See the [phone setup guide](docs/guide.md#use-kharcha-on-your-phone)
 for certificate instructions, session limits and troubleshooting.
+
+## Export a spending PDF
+
+Choose **Export PDF** on Overview or Transactions, set the inclusive dates, and
+optionally include the transaction list. Kharcha creates an A4 report with its
+logo, colors and charts, personal spending totals, category and payment-account
+breakdowns, and numbered pages. Download it on the Mac or a paired phone; if the
+phone previews it, use the browser's save controls.
+
+Overview exports the selected currency. Transactions also applies its active
+category, type, search and spending-group filters; New transactions keeps the
+current visit's selection and separates currencies. The chosen dates replace
+the screen's month. Category/group filters select whole matching payments, so
+personal splits can contribute to more than one category. The report prints its
+filters and coverage warnings. Payment accounts are recorded accounts, rather
+than verified payment methods.
+
+PDF generation stays on the Mac, with no external PDF service or automatic
+sharing. Reports exclude source email bodies, private notes and authentication
+tokens. Downloaded PDFs are readable files, so protect them like other exports.
+The print layout uses the light theme; unsupported font characters appear as
+explicit `[U+code]` labels. See the [PDF guide](docs/guide.md#export-a-spending-pdf)
+for accounting details and empty-selection behavior.
 
 ## Contributing and license
 
