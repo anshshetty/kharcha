@@ -1,5 +1,7 @@
 # Kharcha
 
+A local-first personal spending tracker for macOS.
+
 I built Kharcha to answer two simple questions: **How much am I spending each month, and where is my money going?**
 
 I wanted a tracker that runs on my Mac and keeps my spending data locally, without uploading it to a separate budgeting service.
@@ -10,18 +12,6 @@ I wanted a tracker that runs on my Mac and keeps my spending data locally, witho
 - Imports transactions from Gmail and bank statements.
 - Lets me review and correct transactions, handle shared expenses, and track refunds.
 - Supports exports and encrypted backups.
-
-## Take a look
-
-These screenshots use **299 entirely fictional transactions across seven months**.
-No personal records, connected mailbox, or live AI account were used.
-
-| Spending breakdown | Transactions and evidence |
-| --- | --- |
-| ![Synthetic demo: regular spending, fixed costs and unavoidable costs](docs/screenshots/spending.jpg) | ![Synthetic demo: searchable transactions with category and review labels](docs/screenshots/transactions.jpg) |
-
-See [the full demo and screenshot tour](docs/demo.md) for shared payments,
-refunds, review examples, and a disposable demo you can run without connecting Gmail.
 
 ## Local first
 
@@ -45,4 +35,10 @@ For Gmail setup, detailed features, and troubleshooting, see the [guide](docs/gu
 
 Imported transactions may need corrections. Review anything unclear before relying on the totals.
 
-[Security and privacy](SECURITY.md) · [MIT license](LICENSE)
+## Contributing and license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks, and
+[SECURITY.md](SECURITY.md) for privacy details and vulnerability reporting.
+
+Kharcha is open source under the [MIT license](LICENSE). The bundled Manrope
+font is covered by its [SIL Open Font License](frontend/public/fonts/OFL-Manrope.txt).

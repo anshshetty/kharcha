@@ -108,7 +108,7 @@ Encrypted `.mcb` backups use a password-derived key and include cached evidence 
 
 ## Development and checks
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and development guidance.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and development guidance.
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
